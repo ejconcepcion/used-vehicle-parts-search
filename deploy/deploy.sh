@@ -109,13 +109,6 @@ fi
 
 green "Using $PYTHON_BIN ($("$PYTHON_BIN" --version))"
 
-# Make sure python3-venv is available; on minimal images the venv module
-# can be missing.
-if ! "$PYTHON_BIN" -c "import venv, ensurepip" >/dev/null 2>&1; then
-    yellow "python3-venv or python3-ensurepip missing; installing..."
-    sudo apt update -qq
-    sudo apt install -y "${PYTHON_BIN##*/}-venv" python3-pip
-fi
 
 # --- Step 2: virtualenv ---------------------------------------------------
 
