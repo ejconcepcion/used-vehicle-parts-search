@@ -260,7 +260,7 @@ SUPEOF
     if crontab -l 2>/dev/null | grep -qF "supervisord -c $SUPERVISORD_CONF"; then
         yellow "Reboot cron entry already present --- skipping."
     else
-        ( crontab -l 2>/dev/null; echo "$CRON_CMD" ) | crontab -
+        ( crontab -l 2>/dev/null || true; echo "$CRON_CMD" ) | crontab -
         green "Added @reboot cron entry to auto-start supervisord."
     fi
 fi
