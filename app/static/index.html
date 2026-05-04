@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Used Vehicle Parts Search</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:9999px; font-size:0.75rem; font-weight:600; }
+  .pill-bmw { background:#dbeafe; color:#1e40af; }
+  .pill-vw { background:#dcfce7; color:#166534; }
+  .pill-other { background:#f3f4f6; color:#374151; }
+  details > summary::-webkit-details-marker { display:none; }
+  details > summary { list-style:none; cursor:pointer; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+<div class="max-w-7xl mx-auto p-6">
+  <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+    <div>
+      <h1 class="text-2xl font-bold">Used Vehicle Parts Search</h1>
+      <p id="status-line" class="text-sm text-slate-500">Loading status…</p>
+    </div>
+    <div class="flex gap-2">
+      <button id="btn-run" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50">Run now</button>
+      <button id="btn-refresh" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm font-semibold px-4 py-2 rounded-lg">Refresh</button>
+    </div>
+  </header>
+
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex flex-wrap items-end gap-4">
+    <div>
+      <label class="text-xs font-semibold text-slate-600 block">Make</label>
+      <select id="filter-make" class="mt-1 border rounded px-2 py-1 text-sm">
+        <option value="">All</option>
+        <option value="BMW">BMW</option>
+        <option value="Volkswagen">Volkswagen</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-xs font-semibold text-slate-600 block">Min total value (USD)</label>
+      <input id="filter-min" type="number" min="0" step="50" value="300" class="mt-1 border rounded px-2 py-1 text-sm w-28" />
+    </div>
+    <div>
+      <label class="text-xs font-semibold text-slate-600 block">Sort by</label>
+      <select id="filter-sort" class="mt-1 border rounded px-2 py-1 text-sm">
+        <option value="value">Estimated total (high→low)</option>
+        <option value="added">Recently added</option>
+        <option value="year">Year (newest first)</option>
+        <option value="make">Make / model</option>
+      </select>
+    </div>
+    <div class="text-sm text-slate-500" id="result-count">—</div>
+  </section>
+
+  <section id="vehicles" class="grid gap-3"></section>
+
+  <footer class="text-xs text-slate-400 mt-8">
+    Data: <a href="https://row52.com" class="underline">row52.com</a> + eBay sold listings.
+    For personal research use. Both sites' Terms of Service apply.
+  </footer>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => n == null ? '—' : '$' + Math.round(n).toLocaleString();
+
+async function loadStatus() {
+  const r = await fetch('/api/status');
+  const s = await r.json();
+  const lr = s.last_run;
+  let str = `${s.vehicle_count} vehicles tracked. `;
+  if (s.running) str += 'A pipeline run is in progress.';
+  else if (lr && lr.finished_at) {
+    str += `Last run finished ${new Date(lr.finished_at).toLocaleString()} — ${lr.vehicles_matched} matched, ${lr.parts_queried} part queries.`;
+    if (lr.error) str += ' (errors — see /api/runs)';
+  } else {
+    str += 'No runs yet — click Run now.';
+  }
+  $('#status-line').textContent = str;
+  $('#btn-run').disabled = s.running;
+}
+
+async function loadVehicles() {
+  const make = $('#filter-make').value;
+  const min = parseFloat($('#filter-min').value || 0);
+  const sort = $('#filter-sort').value;
+  const params = new URLSearchParams({ min_value: min, sort });
+  if (make) params.set('make', make);
+  const r = await fetch('/api/vehicles?' + params.toString());
+  const data = await r.json();
+  $('#result-count').textContent = `${data.length} vehicle(s)`;
+
+  const root = $('#vehicles');
+  root.innerHTML = '';
+  if (!data.length) {
+    root.innerHTML = `<div class="text-slate-500 text-sm bg-white border border-slate-200 rounded-xl p-8 text-center">
+      No vehicles match. If this is the first launch, click <b>Run now</b> — the first run takes a few minutes.
+    </div>`;
+    return;
+  }
+
+  for (const v of data) {
+    const makeUpper = (v.make || '').toUpperCase();
+    const pill = makeUpper === 'BMW' ? 'pill-bmw' : makeUpper === 'VOLKSWAGEN' ? 'pill-vw' : 'pill-other';
+    const card = document.createElement('details');
+    card.className = 'bg-white border border-slate-200 rounded-xl shadow-sm';
+    card.innerHTML = `
+      <summary class="flex items-center gap-4 p-4">
+        <img src="${v.image_url || ''}" onerror="this.style.display='none'" class="w-24 h-16 object-cover rounded bg-slate-100" />
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="pill ${pill}">${v.make || '—'}</span>
+            <span class="font-semibold">${v.year || ''} ${v.model || ''}</span>
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${v.yard_name || '—'} · Row ${v.row_number || '?'} · Added ${v.date_added_to_yard || '?'} · VIN ${v.vin}
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-2xl font-bold text-emerald-700">${fmt(v.estimated_total_value)}</div>
+          <div class="text-xs text-slate-500">est. parts value</div>
+        </div>
+      </summary>
+      <div class="border-t border-slate-100 p-4 text-sm" data-parts="${v.id}">
+        <div class="text-slate-500">Loading parts…</div>
+      </div>
+    `;
+    card.addEventListener('toggle', async () => {
+      if (!card.open) return;
+      const target = card.querySelector(`[data-parts="${v.id}"]`);
+      if (target.dataset.loaded) return;
+      target.dataset.loaded = '1';
+      const pr = await fetch(`/api/vehicles/${v.id}/parts`);
+      const parts = await pr.json();
+      if (!parts.length) {
+        target.innerHTML = '<div class="text-slate-500">No part estimates yet.</div>';
+        return;
+      }
+      target.innerHTML = `
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-slate-500 border-b">
+            <th class="py-1">Part</th><th>eBay query</th><th class="text-right">Median sold</th><th class="text-right">Samples</th>
+          </tr></thead>
+          <tbody>
+          ${parts.map(p => `
+            <tr class="border-b border-slate-50">
+              <td class="py-1 font-medium">${p.part_name}</td>
+              <td class="text-slate-500"><a class="underline" target="_blank"
+                href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">${p.ebay_query}</a></td>
+              <td class="text-right ${p.median_price_usd ? 'font-semibold' : 'text-slate-400'}">${fmt(p.median_price_usd)}</td>
+              <td class="text-right text-slate-500">${p.sample_size}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    });
+    root.appendChild(card);
+  }
+}
+
+async function runNow() {
+  $('#btn-run').disabled = true;
+  await fetch('/api/run-now', { method: 'POST' });
+  setTimeout(() => { loadStatus(); loadVehicles(); }, 1500);
+  // Poll status until finished.
+  const poll = setInterval(async () => {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    $('#btn-run').disabled = s.running;
+    if (!s.running) {
+      clearInterval(poll);
+      loadStatus();
+      loadVehicles();
+    }
+  }, 5000);
+}
+
+$('#btn-run').addEventListener('click', runNow);
+$('#btn-refresh').addEventListener('click', () => { loadStatus(); loadVehicles(); });
+['filter-make', 'filter-min', 'filter-sort'].forEach(id => {
+  $('#' + id).addEventListener('change', loadVehicles);
+});
+
+loadStatus();
+loadVehicles();
+</script>
+</body>
+</html>

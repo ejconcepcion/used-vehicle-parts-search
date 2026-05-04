@@ -1,0 +1,22 @@
+# Cron line for the daily pipeline run.
+#
+# You have two ways to install this on Cloudways:
+#
+# Option 1 - Cloudways Cron Job UI (recommended):
+#   Server -> Manage Services -> Cron Job Management -> Add new cron
+#   Set the schedule to "0 3 * * *" (3 AM server time) and the command to:
+#     /home/master/applications/{APP_NAME}/private_html/uvps/.venv/bin/python -m app.run_now >> /var/log/uvps-cron.log 2>&1
+#   Make sure the working directory matches your APP_DIR.
+#
+# Option 2 - direct crontab via SSH:
+#   crontab -e
+#   then paste the line below (with paths adjusted).
+#
+# Note: the FastAPI app already has APScheduler running an in-process daily
+# job at the configured DAILY_RUN_HOUR. Cron + APScheduler is redundant ---
+# pick ONE. Cron is more robust if uvicorn ever crashes between the daily
+# trigger time, since cron will still fire. To disable APScheduler so it
+# doesn't double-run, comment out the `scheduler.start()` line in
+# app/main.py::lifespan.
+
+0 3 * * * cd {APP_DIR} && {VENV_DIR}/bin/python -m app.run_now >> /var/log/uvps-cron.log 2>&1
