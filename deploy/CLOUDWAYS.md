@@ -17,11 +17,11 @@ ssh master_user@your.server.ip
 python3 --version
 ```
 
-Cloudways usually ships Python 3.10 or 3.11. If `python3` returns 3.10+, you're fine. If it's older or missing:
+Cloudways ships Python 3.10. Confirm with `python3 --version` — if it returns 3.10.x you're good to go. If it's missing or older:
 
 ```bash
 sudo apt update
-sudo apt install -y python3.11 python3.11-venv python3-pip
+sudo apt install -y python3.10 python3.10-venv python3-pip
 ```
 
 ## 2. Place the app

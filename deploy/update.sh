@@ -7,13 +7,14 @@
 #     bash deploy/update.sh
 #
 # This script is intentionally shorter than deploy.sh — it assumes the server
-# is already set up (venv exists, supervisor is installed). If this is a
+# is already set up (venv exists, supervisord is running). If this is a
 # first-time setup, run deploy/deploy.sh instead.
 #
 # Environment variable overrides:
-#   PORT            uvicorn bind port (default: 8000)
-#   VENV_DIR        Path to the virtualenv (default: <APP_DIR>/.venv)
-#   SKIP_SMOKE_TEST Set to 1 to skip the HTTP health check after restart
+#   PORT              uvicorn bind port (default: 8000)
+#   VENV_DIR          Path to the virtualenv (default: <APP_DIR>/.venv)
+#   SUPERVISORD_CONF  Path to supervisord.conf (default: <APP_DIR>/data/supervisord.conf)
+#   SKIP_SMOKE_TEST   Set to 1 to skip the HTTP health check after restart
 #
 # Examples:
 #   bash deploy/update.sh
@@ -28,13 +29,14 @@ usage() {
     cat <<EOF
 Usage: bash deploy/update.sh [--help]
 
-Pull the latest code and restart the uvps app via supervisor.
+Pull the latest code and restart the uvps app via supervisord.
 Assumes deploy/deploy.sh has been run at least once on this server.
 
 Environment variable overrides:
-  PORT            uvicorn bind port  (default: 8000)
-  VENV_DIR        Path to the venv   (default: <APP_DIR>/.venv)
-  SKIP_SMOKE_TEST Set to 1 to skip HTTP health check after restart
+  PORT              uvicorn bind port  (default: 8000)
+  VENV_DIR          Path to the venv   (default: <APP_DIR>/.venv)
+  SUPERVISORD_CONF  supervisord config  (default: <APP_DIR>/data/supervisord.conf)
+  SKIP_SMOKE_TEST   Set to 1 to skip HTTP health check after restart
 EOF
 }
 
@@ -51,7 +53,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_DIR="${VENV_DIR:-$APP_DIR/.venv}"
 PORT="${PORT:-8000}"
+SUPERVISORD_CONF="${SUPERVISORD_CONF:-$APP_DIR/data/supervisord.conf}"
+SUPERVISORD_PID="$APP_DIR/data/supervisord.pid"
 SKIP_SMOKE_TEST="${SKIP_SMOKE_TEST:-0}"
+
+SUPERVISORCTL_CMD="$VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF"
+SUPERVISORD_CMD="$VENV_DIR/bin/supervisord -c $SUPERVISORD_CONF"
 
 # --- Pretty output ---------------------------------------------------------
 
@@ -69,14 +76,6 @@ if [ ! -d "$VENV_DIR" ]; then
     red "Virtualenv not found at $VENV_DIR."
     yellow "This looks like a first-time setup. Run deploy/deploy.sh instead."
     exit 1
-fi
-
-if ! command -v supervisorctl >/dev/null 2>&1; then
-    red "supervisorctl not found."
-    yellow "If you're not using supervisor, restart uvicorn manually after this script exits."
-    SKIP_SUPERVISOR=1
-else
-    SKIP_SUPERVISOR=0
 fi
 
 # --- Step 1: Pull latest code ----------------------------------------------
@@ -101,27 +100,34 @@ step "2/4  Syncing Python dependencies"
 source "$VENV_DIR/bin/activate"
 pip install --upgrade --quiet pip
 pip install --quiet -r "$APP_DIR/requirements.txt"
+pip install --quiet supervisor
 green "Dependencies up to date."
 
-# --- Step 3: Restart via supervisor ----------------------------------------
+# --- Step 3: Restart via supervisord ---------------------------------------
 
-step "3/4  Restarting uvps via supervisor"
+step "3/4  Restarting uvps"
 
-if [ "${SKIP_SUPERVISOR:-0}" = "1" ]; then
-    yellow "Skipping supervisor restart (supervisorctl not available)."
-    yellow "Restart uvicorn manually:"
-    yellow "  source $VENV_DIR/bin/activate"
-    yellow "  uvicorn app.main:app --host 127.0.0.1 --port $PORT --workers 2"
-else
-    sudo supervisorctl restart uvps
+if [ -f "$SUPERVISORD_PID" ] && kill -0 "$(cat "$SUPERVISORD_PID")" 2>/dev/null; then
+    $SUPERVISORCTL_CMD restart uvps
     sleep 3
-    sudo supervisorctl status uvps
+    $SUPERVISORCTL_CMD status uvps || true
 
-    if sudo supervisorctl status uvps | grep -q RUNNING; then
+    if $SUPERVISORCTL_CMD status uvps | grep -q RUNNING; then
         green "uvps is RUNNING."
     else
         red "uvps is not running after restart. Last 30 lines of stderr:"
-        sudo tail -n 30 /var/log/supervisor/uvps-stderr.log || true
+        tail -n 30 "$APP_DIR/data/uvps-stderr.log" || true
+        exit 1
+    fi
+else
+    yellow "supervisord is not running — starting it now."
+    $SUPERVISORD_CMD
+    sleep 3
+    if $SUPERVISORCTL_CMD status uvps | grep -q RUNNING; then
+        green "supervisord started and uvps is RUNNING."
+    else
+        red "uvps failed to start. Last 30 lines of stderr:"
+        tail -n 30 "$APP_DIR/data/uvps-stderr.log" || true
         exit 1
     fi
 fi
@@ -131,13 +137,12 @@ fi
 step "4/4  Health check"
 
 if [ "$SKIP_SMOKE_TEST" != "1" ] && command -v curl >/dev/null 2>&1; then
-    # Give the process a moment to bind
     sleep 2
     if curl -fsS "http://127.0.0.1:$PORT/api/status" >/dev/null; then
         green "GET /api/status returned 200 OK"
     else
         yellow "GET /api/status failed — the app may still be starting. Check:"
-        yellow "  sudo tail -f /var/log/supervisor/uvps-stdout.log"
+        yellow "  tail -f $APP_DIR/data/uvps-stdout.log"
     fi
 else
     yellow "Skipping HTTP check (curl not found or SKIP_SMOKE_TEST=1)."
@@ -150,7 +155,7 @@ bold "--------------------------------------------------------------"
 green "Update complete."
 bold "--------------------------------------------------------------"
 echo
-echo "Logs:    sudo tail -f /var/log/supervisor/uvps-stdout.log"
-echo "Status:  sudo supervisorctl status uvps"
-echo "Restart: sudo supervisorctl restart uvps"
+echo "Logs:    tail -f $APP_DIR/data/uvps-stdout.log"
+echo "Status:  $SUPERVISORCTL_CMD status"
+echo "Restart: $SUPERVISORCTL_CMD restart uvps"
 echo

@@ -39,7 +39,7 @@ Environment variable overrides (set before the script, e.g. PORT=8001 bash deplo
   APP_USER              Linux user that owns files  (default: current user)
   VENV_DIR              Path to the virtualenv      (default: <APP_DIR>/.venv)
   PYTHON_BIN            Explicit python3 binary     (default: auto-detected)
-  SUPERVISOR_CONF_DST   Where to install the conf   (default: /etc/supervisor/conf.d/uvps.conf)
+  SUPERVISORD_CONF      Path for generated supervisord.conf  (default: <APP_DIR>/data/supervisord.conf)
   SKIP_SUPERVISOR       Set to 1 to skip supervisor steps (venv + deps only)
   SKIP_SMOKE_TEST       Set to 1 to skip the import + HTTP smoke test
 
@@ -68,8 +68,7 @@ APP_USER="${APP_USER:-$(id -un)}"
 VENV_DIR="${VENV_DIR:-$APP_DIR/.venv}"
 PORT="${PORT:-8000}"
 PYTHON_BIN="${PYTHON_BIN:-}"
-SUPERVISOR_CONF_DST="${SUPERVISOR_CONF_DST:-/etc/supervisor/conf.d/uvps.conf}"
-SUPERVISOR_CONF_SRC="$APP_DIR/deploy/supervisor.conf"
+SUPERVISORD_CONF="${SUPERVISORD_CONF:-$APP_DIR/data/supervisord.conf}"
 SKIP_SUPERVISOR="${SKIP_SUPERVISOR:-0}"
 SKIP_SMOKE_TEST="${SKIP_SMOKE_TEST:-0}"
 
@@ -104,7 +103,7 @@ fi
 if [ -z "$PYTHON_BIN" ]; then
     red "No Python 3.10+ found on PATH."
     yellow "On Cloudways/Ubuntu, install with:"
-    echo "    sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip"
+    echo "    sudo apt update && sudo apt install -y python3.10 python3.10-venv python3-pip"
     exit 1
 fi
 
@@ -112,8 +111,8 @@ green "Using $PYTHON_BIN ($("$PYTHON_BIN" --version))"
 
 # Make sure python3-venv is available; on minimal images the venv module
 # can be missing.
-if ! "$PYTHON_BIN" -c "import venv" >/dev/null 2>&1; then
-    yellow "python3-venv module missing; installing..."
+if ! "$PYTHON_BIN" -c "import venv, ensurepip" >/dev/null 2>&1; then
+    yellow "python3-venv or python3-ensurepip missing; installing..."
     sudo apt update -qq
     sudo apt install -y "${PYTHON_BIN##*/}-venv" python3-pip
 fi
@@ -125,8 +124,19 @@ step "2/8  Creating virtualenv at $VENV_DIR"
 if [ -d "$VENV_DIR" ]; then
     yellow "Existing venv found --- reusing."
 else
-    "$PYTHON_BIN" -m venv "$VENV_DIR"
-    green "Created venv."
+    if "$PYTHON_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
+        green "Created venv."
+    else
+        yellow "venv creation failed (likely missing ensurepip / no sudo)."
+        yellow "Falling back to --without-pip + get-pip.py bootstrap..."
+        "$PYTHON_BIN" -m venv --without-pip "$VENV_DIR"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$VENV_DIR/bin/python"
+        else
+            wget -qO- https://bootstrap.pypa.io/get-pip.py | "$VENV_DIR/bin/python"
+        fi
+        green "Created venv with bootstrapped pip."
+    fi
 fi
 
 # Activate for the rest of the script.
@@ -139,6 +149,7 @@ step "3/8  Installing Python dependencies"
 
 pip install --upgrade --quiet pip
 pip install --quiet -r "$APP_DIR/requirements.txt"
+pip install --quiet supervisor
 green "Dependencies installed."
 
 if [ "$SKIP_SMOKE_TEST" != "1" ]; then
@@ -185,49 +196,79 @@ else
     fi
 fi
 
-# --- Step 6: render supervisor config -------------------------------------
+# --- Step 6: generate user-level supervisord.conf -------------------------
 
 if [ "$SKIP_SUPERVISOR" = "1" ]; then
     yellow "SKIP_SUPERVISOR=1 --- skipping supervisor steps."
 else
-    step "6/8  Rendering and installing supervisor config"
+    step "6/8  Generating supervisord config"
 
-    if ! command -v supervisorctl >/dev/null 2>&1; then
-        red "supervisorctl not found. Install with: sudo apt install -y supervisor"
-        yellow "Or re-run with SKIP_SUPERVISOR=1 to handle service management yourself."
-        exit 1
+    SUPERVISOR_SOCK="$APP_DIR/data/supervisor.sock"
+    SUPERVISORD_PID="$APP_DIR/data/supervisord.pid"
+    SUPERVISORD_LOG="$APP_DIR/data/supervisord.log"
+
+    cat > "$SUPERVISORD_CONF" <<SUPEOF
+[supervisord]
+logfile=$SUPERVISORD_LOG
+pidfile=$SUPERVISORD_PID
+nodaemon=false
+
+[unix_http_server]
+file=$SUPERVISOR_SOCK
+
+[supervisorctl]
+serverurl=unix://$SUPERVISOR_SOCK
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory=supervisor.rpcinterface:make_main_rpcinterface
+
+[program:uvps]
+command=$VENV_DIR/bin/uvicorn app.main:app --host 127.0.0.1 --port $PORT --workers 2
+directory=$APP_DIR
+autostart=true
+autorestart=true
+stdout_logfile=$APP_DIR/data/uvps-stdout.log
+stderr_logfile=$APP_DIR/data/uvps-stderr.log
+environment=PYTHONUNBUFFERED="1"
+SUPEOF
+
+    green "Config written to $SUPERVISORD_CONF"
+
+    # --- Step 7: start or reload supervisord ---------------------------------
+
+    step "7/8  Starting supervisord"
+
+    SUPERVISORCTL_CMD="$VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF"
+    SUPERVISORD_CMD="$VENV_DIR/bin/supervisord -c $SUPERVISORD_CONF"
+
+    if [ -f "$SUPERVISORD_PID" ] && kill -0 "$(cat "$SUPERVISORD_PID")" 2>/dev/null; then
+        yellow "supervisord already running --- reloading config and restarting uvps."
+        $SUPERVISORCTL_CMD reread
+        $SUPERVISORCTL_CMD update
+        $SUPERVISORCTL_CMD restart uvps
+    else
+        $SUPERVISORD_CMD
+        green "supervisord started."
     fi
 
-    RENDERED="$(mktemp)"
-    sed \
-        -e "s|{APP_USER}|$APP_USER|g" \
-        -e "s|{APP_DIR}|$APP_DIR|g" \
-        -e "s|{VENV_DIR}|$VENV_DIR|g" \
-        -e "s|{PORT}|$PORT|g" \
-        "$SUPERVISOR_CONF_SRC" > "$RENDERED"
+    sleep 3
+    $SUPERVISORCTL_CMD status uvps || true
 
-    bold "  Rendered supervisor config:"
-    sed 's/^/    /' "$RENDERED"
-
-    sudo install -m 644 "$RENDERED" "$SUPERVISOR_CONF_DST"
-    rm -f "$RENDERED"
-    green "Installed at $SUPERVISOR_CONF_DST"
-
-    # --- Step 6: reload + status -----------------------------------------
-
-    step "7/8  Reloading supervisor"
-
-    sudo supervisorctl reread
-    sudo supervisorctl update
-    sleep 2
-    sudo supervisorctl status uvps || true
-
-    if sudo supervisorctl status uvps | grep -q RUNNING; then
+    if $SUPERVISORCTL_CMD status uvps | grep -q RUNNING; then
         green "uvps is RUNNING on 127.0.0.1:$PORT"
     else
         red "uvps is not running. Last 30 lines of stderr:"
-        sudo tail -n 30 /var/log/supervisor/uvps-stderr.log || true
+        tail -n 30 "$APP_DIR/data/uvps-stderr.log" || true
         exit 1
+    fi
+
+    # Install @reboot crontab entry so supervisord survives server restarts.
+    CRON_CMD="@reboot cd $APP_DIR && $VENV_DIR/bin/supervisord -c $SUPERVISORD_CONF"
+    if crontab -l 2>/dev/null | grep -qF "supervisord -c $SUPERVISORD_CONF"; then
+        yellow "Reboot cron entry already present --- skipping."
+    else
+        ( crontab -l 2>/dev/null; echo "$CRON_CMD" ) | crontab -
+        green "Added @reboot cron entry to auto-start supervisord."
     fi
 fi
 
@@ -253,9 +294,10 @@ green "Deploy complete."
 bold "--------------------------------------------------------------"
 echo
 echo "Local URL:    http://127.0.0.1:$PORT/"
-echo "Logs:         sudo tail -f /var/log/supervisor/uvps-stdout.log"
-echo "Restart:      sudo supervisorctl restart uvps"
-echo "Stop:         sudo supervisorctl stop uvps"
+echo "Logs:         tail -f $APP_DIR/data/uvps-stdout.log"
+echo "Restart:      $VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF restart uvps"
+echo "Stop:         $VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF stop uvps"
+echo "Status:       $VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF status"
 echo
 bold "Next steps"
 echo "  1. Expose via your domain. Either:"
@@ -271,10 +313,9 @@ echo
 echo "  3. (Optional) Use Cloudways' Cron Job UI for the daily pipeline run"
 echo "     instead of APScheduler. See deploy/crontab-entry.txt."
 echo
-echo "  4. (Optional) When you have an eBay developer account, copy"
-echo "     .env.example to .env, fill in EBAY_CLIENT_ID / EBAY_CLIENT_SECRET,"
-echo "     set EBAY_USE_API=1, and:"
-echo "         sudo supervisorctl restart uvps"
+echo "  4. (Optional) When you have an eBay developer account, fill in"
+echo "     EBAY_CLIENT_ID / EBAY_CLIENT_SECRET in .env, set EBAY_USE_API=1, and:"
+echo "         $VENV_DIR/bin/supervisorctl -c $SUPERVISORD_CONF restart uvps"
 echo
 echo "  5. Run a one-off pipeline now to populate the dashboard:"
 echo "         cd $APP_DIR && $VENV_DIR/bin/python -m app.run_now"
