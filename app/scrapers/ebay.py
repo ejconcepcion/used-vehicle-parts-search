@@ -122,6 +122,106 @@ def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
 
 
 # --------------------------------------------------------------------------
+# Top-sold parts search (by vehicle year/make/model)
+# --------------------------------------------------------------------------
+
+def _ebay_top_sold_url(query: str) -> str:
+    return (
+        "https://www.ebay.com/sch/i.html"
+        f"?_nkw={quote_plus(query)}"
+        "&_sacat=33637"   # Car & Truck Parts & Accessories
+        "&LH_Sold=1"
+        "&LH_Complete=1"
+        "&_sop=16"        # Price + Shipping: highest first
+        "&_ipg=60"
+    )
+
+
+def fetch_top_sold_parts(year: str | int, make: str, model: str, n: int = 20) -> list[dict]:
+    """Search eBay sold listings for a specific vehicle and return up to n items sorted by price desc.
+
+    Returns a list of dicts: {title, price_usd, url, sold_date_str}.
+    """
+    query = f"{year} {make} {model}"
+    url = _ebay_top_sold_url(query)
+    log.info("eBay top-sold query: %s", query)
+
+    proxies = {"http": config.EBAY_PROXY, "https": config.EBAY_PROXY} if config.EBAY_PROXY else None
+
+    try:
+        if _USE_CFFI:
+            kwargs: dict = {"impersonate": "chrome110", "timeout": 60}
+            if proxies:
+                kwargs["proxies"] = proxies
+            resp = cffi_requests.get(url, **kwargs)
+        else:
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            resp = _requests.get(url, headers=headers, proxies=proxies, timeout=60)
+    except Exception as e:
+        log.warning("eBay top-sold request failed for %r: %s", query, e)
+        return []
+
+    if not resp.ok:
+        log.warning("eBay returned HTTP %d for top-sold %r", resp.status_code, query)
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    results: list[dict] = []
+
+    for item in soup.select("li.s-item"):
+        title_tag = item.select_one(".s-item__title")
+        if not title_tag:
+            continue
+        title = title_tag.get_text(strip=True)
+        if "shop on ebay" in title.lower():
+            continue
+
+        price_tag = item.select_one(".s-item__price")
+        if not price_tag:
+            continue
+        price_text = price_tag.get_text(" ", strip=True)
+        nums = [float(m.group(1).replace(",", "")) for m in PRICE_RE.finditer(price_text)]
+        if not nums:
+            continue
+        price = nums[0] if len(nums) == 1 else sum(nums) / len(nums)
+
+        # Item URL — strip tracking params
+        link_tag = item.select_one("a.s-item__link")
+        item_url = ""
+        if link_tag and link_tag.get("href"):
+            item_url = link_tag["href"].split("?")[0]
+
+        # Sold date label (varies by eBay layout)
+        sold_date = ""
+        for sel in (".s-item__caption--signal", ".s-item__endedDate", ".POSITIVE"):
+            date_tag = item.select_one(sel)
+            if date_tag:
+                sold_date = date_tag.get_text(strip=True)
+                break
+
+        results.append({
+            "title": title,
+            "price_usd": price,
+            "url": item_url,
+            "sold_date_str": sold_date,
+        })
+
+        if len(results) >= n * 2:   # collect extra, then trim after sort
+            break
+
+    results.sort(key=lambda x: x["price_usd"], reverse=True)
+    return results[:n]
+
+
+# --------------------------------------------------------------------------
 # Official Browse API backend (stub — enable with EBAY_USE_API=1)
 # --------------------------------------------------------------------------
 

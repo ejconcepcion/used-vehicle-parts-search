@@ -181,60 +181,95 @@ async function loadVehicles() {
       <div class="border-t border-slate-100 p-3 sm:p-4" data-parts="${v.id}">
         <div class="text-slate-500 text-sm">Loading parts…</div>
       </div>
+      <div class="border-t border-slate-100 p-3 sm:p-4" data-top-parts="${v.id}">
+        <div class="text-slate-500 text-sm">Loading recently sold…</div>
+      </div>
     `;
 
     card.addEventListener('toggle', async () => {
       if (!card.open) return;
+
+      // --- Curated parts table ---
       const target = card.querySelector(`[data-parts="${v.id}"]`);
-      if (target.dataset.loaded) return;
-      target.dataset.loaded = '1';
-      const pr = await fetch(`/api/vehicles/${v.id}/parts`);
-      const parts = await pr.json();
-      if (!parts.length) {
-        target.innerHTML = '<div class="text-slate-500 text-sm">No part estimates yet.</div>';
-        return;
+      if (!target.dataset.loaded) {
+        target.dataset.loaded = '1';
+        const pr = await fetch(`/api/vehicles/${v.id}/parts`);
+        const parts = await pr.json();
+        if (!parts.length) {
+          target.innerHTML = '<div class="text-slate-500 text-sm">No curated part estimates yet.</div>';
+        } else {
+          target.innerHTML = `
+            <p class="text-xs font-semibold text-slate-500 mb-2">Curated parts</p>
+            <p class="text-xs text-slate-400 mb-2">
+              Net = eBay median &minus; 16.25% fees &minus; shipping. Tap a part to search eBay.
+            </p>
+            <div class="sm:table-scroll sm:-mx-3 sm:px-3">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-xs text-slate-500 border-b">
+                    <th class="py-1.5 pr-2 font-medium">Part</th>
+                    <th class="py-1.5 pr-2 font-medium hidden sm:table-cell">eBay query</th>
+                    <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Median</th>
+                    <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Ship</th>
+                    <th class="py-1.5 font-semibold text-right text-slate-700">Net value</th>
+                    <th class="py-1.5 pl-2 font-medium text-right hidden sm:table-cell">n</th>
+                  </tr>
+                </thead>
+                <tbody>
+                ${parts.map(p => `
+                  <tr class="border-b border-slate-50">
+                    <td class="py-1.5 pr-2 font-medium">
+                      <a class="block sm:hidden text-blue-600 hover:underline" target="_blank"
+                        href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
+                        ${p.part_name}
+                      </a>
+                      <span class="hidden sm:block">${p.part_name}</span>
+                    </td>
+                    <td class="py-1.5 pr-2 text-slate-500 text-xs hidden sm:table-cell">
+                      <a class="underline" target="_blank"
+                        href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
+                        ${p.ebay_query}
+                      </a>
+                    </td>
+                    <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${fmt(p.median_price_usd)}</td>
+                    <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${p.shipping_est_usd != null ? '$' + p.shipping_est_usd : '—'}</td>
+                    <td class="py-1.5 text-right ${p.net_value_usd ? 'font-semibold text-emerald-700' : 'text-slate-400'}">${fmtNet(p.net_value_usd)}</td>
+                    <td class="py-1.5 pl-2 text-right text-slate-400 hidden sm:table-cell">${p.sample_size}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`;
+        }
       }
 
-      target.innerHTML = `
-        <p class="text-xs text-slate-400 mb-2">
-          Net = eBay median &minus; 16.25% fees &minus; shipping. Tap a part to search eBay.
-        </p>
-        <div class="sm:table-scroll sm:-mx-3 sm:px-3">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-xs text-slate-500 border-b">
-                <th class="py-1.5 pr-2 font-medium">Part</th>
-                <th class="py-1.5 pr-2 font-medium hidden sm:table-cell">eBay query</th>
-                <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Median</th>
-                <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Ship</th>
-                <th class="py-1.5 font-semibold text-right text-slate-700">Net value</th>
-                <th class="py-1.5 pl-2 font-medium text-right hidden sm:table-cell">n</th>
-              </tr>
-            </thead>
-            <tbody>
-            ${parts.map(p => `
-              <tr class="border-b border-slate-50">
-                <td class="py-1.5 pr-2 font-medium">
-                  <a class="block sm:hidden text-blue-600 hover:underline" target="_blank"
-                    href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
-                    ${p.part_name}
-                  </a>
-                  <span class="hidden sm:block">${p.part_name}</span>
-                </td>
-                <td class="py-1.5 pr-2 text-slate-500 text-xs hidden sm:table-cell">
-                  <a class="underline" target="_blank"
-                    href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
-                    ${p.ebay_query}
-                  </a>
-                </td>
-                <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${fmt(p.median_price_usd)}</td>
-                <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${p.shipping_est_usd != null ? '$' + p.shipping_est_usd : '—'}</td>
-                <td class="py-1.5 text-right ${p.net_value_usd ? 'font-semibold text-emerald-700' : 'text-slate-400'}">${fmtNet(p.net_value_usd)}</td>
-                <td class="py-1.5 pl-2 text-right text-slate-400 hidden sm:table-cell">${p.sample_size}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
+      // --- Recently sold section ---
+      const topTarget = card.querySelector(`[data-top-parts="${v.id}"]`);
+      if (!topTarget.dataset.loaded) {
+        topTarget.dataset.loaded = '1';
+        const tr = await fetch(`/api/vehicles/${v.id}/top-parts`);
+        const topParts = await tr.json();
+        if (!topParts.length) {
+          topTarget.innerHTML = '<div class="text-slate-400 text-xs mt-1">No recently sold data yet — run the pipeline to fetch.</div>';
+        } else {
+          topTarget.innerHTML = `
+            <p class="text-xs font-semibold text-slate-500 mb-2">Recently sold on eBay — top 20 by price</p>
+            <p class="text-xs text-slate-400 mb-2">Actual sold listings for this year/make/model. Tap to view on eBay.</p>
+            <div>
+              ${topParts.map((p, i) => `
+                <a href="${p.url || '#'}" target="_blank" rel="noopener"
+                  class="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50 hover:bg-slate-50 group">
+                  <span class="flex items-center gap-2 min-w-0">
+                    <span class="text-xs text-slate-400 w-5 flex-shrink-0">${i + 1}</span>
+                    <span class="text-sm text-slate-700 group-hover:text-blue-600 truncate">${p.title}</span>
+                  </span>
+                  <span class="flex-shrink-0 text-right">
+                    <span class="text-sm font-semibold text-emerald-700">${fmt(p.price_usd)}</span>
+                    ${p.sold_date_str ? `<span class="text-xs text-slate-400 ml-1 hidden sm:inline">${p.sold_date_str}</span>` : ''}
+                  </span>
+                </a>`).join('')}
+            </div>`;
+        }
+      }
     });
     root.appendChild(card);
   }

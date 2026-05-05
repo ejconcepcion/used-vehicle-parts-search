@@ -45,6 +45,11 @@ class Vehicle(Base):
         back_populates="vehicle",
         cascade="all, delete-orphan",
     )
+    top_sold_parts = relationship(
+        "TopSoldPart",
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+    )
 
 
 class PartEstimate(Base):
@@ -78,6 +83,22 @@ class EbayPriceCache(Base):
     sample_size = Column(Integer, default=0)
     queried_at = Column(DateTime, default=datetime.utcnow)
     raw_prices_json = Column(Text, nullable=True)
+
+
+class TopSoldPart(Base):
+    """Top recently-sold eBay listings for a vehicle (fetched by year/make/model)."""
+
+    __tablename__ = "top_sold_part"
+
+    id = Column(Integer, primary_key=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicle.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    price_usd = Column(Float, nullable=True)
+    url = Column(String, nullable=True)
+    sold_date_str = Column(String, nullable=True)
+    queried_at = Column(DateTime, default=datetime.utcnow)
+
+    vehicle = relationship("Vehicle", back_populates="top_sold_parts")
 
 
 class SearchRun(Base):

@@ -17,7 +17,7 @@ from sqlalchemy import desc, func, select
 
 from . import config, progress, scheduler
 from .database import init_db, session_scope
-from .models import EbayPriceCache, PartEstimate, SearchRun, Vehicle
+from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
 from .parts_catalog import parts_for_vehicle
 
 log = logging.getLogger(__name__)
@@ -106,6 +106,28 @@ def vehicle_parts(vehicle_id: int) -> list[dict[str, Any]]:
             for p in sorted(
                 veh.parts,
                 key=lambda x: (x.net_value_usd or 0),
+                reverse=True,
+            )
+        ]
+
+
+@app.get("/api/vehicles/{vehicle_id}/top-parts")
+def vehicle_top_parts(vehicle_id: int) -> list[dict[str, Any]]:
+    with session_scope() as session:
+        veh = session.get(Vehicle, vehicle_id)
+        if veh is None:
+            raise HTTPException(404, "Vehicle not found")
+        return [
+            {
+                "title": p.title,
+                "price_usd": p.price_usd,
+                "url": p.url,
+                "sold_date_str": p.sold_date_str,
+                "queried_at": p.queried_at.isoformat() if p.queried_at else None,
+            }
+            for p in sorted(
+                veh.top_sold_parts,
+                key=lambda x: (x.price_usd or 0),
                 reverse=True,
             )
         ]
