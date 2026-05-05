@@ -13,6 +13,13 @@
   .pill-other { background:#f3f4f6; color:#374151; }
   details > summary::-webkit-details-marker { display:none; }
   details > summary { list-style:none; cursor:pointer; }
+  /* Progress bar */
+  #progress-banner { display:none; }
+  #progress-banner.visible { display:block; }
+  .progress-track { background:#e2e8f0; border-radius:9999px; height:8px; overflow:hidden; }
+  .progress-fill { height:100%; border-radius:9999px; background:#2563eb; transition:width 0.4s ease; }
+  @keyframes indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }
+  .progress-fill.indeterminate { width:25% !important; animation:indeterminate 1.4s ease infinite; }
 </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -27,6 +34,18 @@
       <button id="btn-refresh" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm font-semibold px-4 py-2 rounded-lg">Refresh</button>
     </div>
   </header>
+
+  <!-- Progress banner (visible only during a run) -->
+  <div id="progress-banner" class="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-4">
+    <div class="flex items-center justify-between mb-2">
+      <span id="progress-phase" class="text-sm font-semibold text-blue-700"></span>
+      <span id="progress-counts" class="text-xs text-slate-500"></span>
+    </div>
+    <div class="progress-track">
+      <div id="progress-fill" class="progress-fill indeterminate" style="width:0%"></div>
+    </div>
+    <div id="progress-vehicle" class="text-xs text-slate-400 mt-1 truncate"></div>
+  </div>
 
   <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex flex-wrap items-end gap-4">
     <div>
@@ -79,6 +98,7 @@ async function loadStatus() {
   }
   $('#status-line').textContent = str;
   $('#btn-run').disabled = s.running;
+  if (s.running) startProgressPolling();
 }
 
 async function loadVehicles() {
@@ -158,21 +178,53 @@ async function loadVehicles() {
   }
 }
 
-async function runNow() {
-  $('#btn-run').disabled = true;
-  await fetch('/api/run-now', { method: 'POST' });
-  setTimeout(() => { loadStatus(); loadVehicles(); }, 1500);
-  // Poll status until finished.
-  const poll = setInterval(async () => {
-    const r = await fetch('/api/status');
-    const s = await r.json();
-    $('#btn-run').disabled = s.running;
-    if (!s.running) {
-      clearInterval(poll);
+function updateProgressUI(p) {
+  const banner = $('#progress-banner');
+  if (!p.running) {
+    banner.classList.remove('visible');
+    return;
+  }
+  banner.classList.add('visible');
+  $('#progress-phase').textContent = p.phase_label || 'Running…';
+  const fill = $('#progress-fill');
+  if (p.phase === 'scraping' || p.vehicles_total === 0) {
+    fill.classList.add('indeterminate');
+    $('#progress-counts').textContent = 'Scraping Row52…';
+    $('#progress-vehicle').textContent = '';
+  } else {
+    fill.classList.remove('indeterminate');
+    const pct = Math.round((p.vehicles_done / p.vehicles_total) * 100);
+    fill.style.width = pct + '%';
+    $('#progress-counts').textContent =
+      `${p.vehicles_done} / ${p.vehicles_total} vehicles · ${p.parts_queried} part queries`;
+    $('#progress-vehicle').textContent = p.current_vehicle
+      ? `Pricing: ${p.current_vehicle}` : '';
+  }
+}
+
+let _progressPoll = null;
+
+function startProgressPolling() {
+  if (_progressPoll) return;
+  _progressPoll = setInterval(async () => {
+    const r = await fetch('/api/progress');
+    const p = await r.json();
+    updateProgressUI(p);
+    if (!p.running) {
+      clearInterval(_progressPoll);
+      _progressPoll = null;
       loadStatus();
       loadVehicles();
     }
-  }, 5000);
+  }, 2000);
+}
+
+async function runNow() {
+  $('#btn-run').disabled = true;
+  await fetch('/api/run-now', { method: 'POST' });
+  // Show indeterminate bar immediately, then start polling.
+  updateProgressUI({ running: true, phase: 'scraping', phase_label: 'Scraping Row52…', vehicles_total: 0 });
+  startProgressPolling();
 }
 
 $('#btn-run').addEventListener('click', runNow);

@@ -20,7 +20,7 @@ from typing import Optional
 
 from sqlalchemy import select
 
-from . import config
+from . import config, progress
 from .database import init_db, session_scope
 from .models import EbayPriceCache, PartEstimate, SearchRun, Vehicle
 from .parts_catalog import CatalogPart, parts_for_vehicle
@@ -112,7 +112,9 @@ def run_pipeline() -> dict:
     started = dt.datetime.utcnow()
     seen = matched = parts_queried = 0
     error: str | None = None
+    run_id: int | None = None
 
+    progress.start()
     try:
         with session_scope() as session:
             run = SearchRun(started_at=started)
@@ -120,14 +122,21 @@ def run_pipeline() -> dict:
             session.flush()
             run_id = run.id
 
-        for v in row52.search():
-            seen += 1
+        # Collect all matching vehicles first so we know the total upfront.
+        vehicles_raw = list(row52.search())
+        seen = len(vehicles_raw)
+        progress.set_pricing(seen)
+
+        for v in vehicles_raw:
             with session_scope() as session:
                 vehicle = _upsert_vehicle(session, v)
                 applicable = parts_for_vehicle(vehicle.make or "", vehicle.model or "")
                 applicable = applicable[: config.PARTS_PER_VEHICLE_LIMIT]
                 if not applicable:
                     matched += 1
+                    progress.vehicle_done(
+                        f"{vehicle.year} {vehicle.make} {vehicle.model}", parts_queried
+                    )
                     continue
 
                 total = 0.0
@@ -144,10 +153,15 @@ def run_pipeline() -> dict:
                     "Vehicle %s %s %s -> $%.0f (%d parts)",
                     vehicle.year, vehicle.make, vehicle.model, total, len(applicable),
                 )
+                progress.vehicle_done(
+                    f"{vehicle.year} {vehicle.make} {vehicle.model}", parts_queried
+                )
 
     except Exception:
         error = traceback.format_exc()
         log.exception("Pipeline failed")
+    finally:
+        progress.finish()
 
     finished = dt.datetime.utcnow()
     with session_scope() as session:

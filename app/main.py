@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc, func, select
 
-from . import config, scheduler
+from . import config, progress, scheduler
 from .database import init_db, session_scope
 from .models import PartEstimate, SearchRun, Vehicle
 
@@ -122,6 +122,11 @@ def list_runs(limit: int = Query(20, ge=1, le=200)) -> list[dict[str, Any]]:
             }
             for r in rows
         ]
+
+
+@app.get("/api/progress")
+def get_progress() -> dict[str, Any]:
+    return progress.get()
 
 
 @app.post("/api/run-now")
