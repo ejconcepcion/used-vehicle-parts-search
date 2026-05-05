@@ -207,6 +207,65 @@ def update_ebay_cache(items: list[EbayCacheItem]) -> dict[str, Any]:
     return {"stored": len(items)}
 
 
+@app.get("/api/pending-top-sold")
+def pending_top_sold() -> dict[str, Any]:
+    """Return vehicles whose top-sold data is missing or older than 24 h."""
+    cutoff = dt.datetime.utcnow() - dt.timedelta(hours=24)
+    with session_scope() as session:
+        vehicles = session.scalars(select(Vehicle)).all()
+        pending = []
+        for v in vehicles:
+            if not v.top_sold_parts:
+                pending.append({"vehicle_id": v.id, "year": v.year, "make": v.make, "model": v.model})
+                continue
+            newest = max(
+                (p.queried_at for p in v.top_sold_parts if p.queried_at),
+                default=None,
+            )
+            if newest is None or newest < cutoff:
+                pending.append({"vehicle_id": v.id, "year": v.year, "make": v.make, "model": v.model})
+    return {"vehicles": pending, "total": len(pending)}
+
+
+class TopSoldItem(BaseModel):
+    title: str
+    price_usd: float
+    url: str = ""
+    sold_date_str: str = ""
+
+
+class TopSoldBatchEntry(BaseModel):
+    vehicle_id: int
+    items: list[TopSoldItem]
+
+
+@app.post("/api/top-sold-cache")
+def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
+    """Accept top-sold results from the local pricer and store them."""
+    now = dt.datetime.utcnow()
+    total_stored = 0
+    with session_scope() as session:
+        for entry in batch:
+            veh = session.get(Vehicle, entry.vehicle_id)
+            if veh is None:
+                continue
+            for old in list(veh.top_sold_parts):
+                session.delete(old)
+            session.flush()
+            for item in entry.items:
+                session.add(TopSoldPart(
+                    vehicle_id=entry.vehicle_id,
+                    title=item.title,
+                    price_usd=item.price_usd,
+                    url=item.url,
+                    sold_date_str=item.sold_date_str,
+                    queried_at=now,
+                ))
+            total_stored += len(entry.items)
+    log.info("Top-sold cache updated: %d items across %d vehicles", total_stored, len(batch))
+    return {"stored": total_stored}
+
+
 @app.post("/api/clear-cache")
 def clear_cache() -> dict[str, Any]:
     """Delete all eBay price cache and top-sold rows so the next run re-fetches everything."""

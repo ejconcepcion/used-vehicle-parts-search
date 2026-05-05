@@ -22,7 +22,7 @@ from sqlalchemy import select
 
 from . import config, progress
 from .database import init_db, session_scope
-from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
+from .models import EbayPriceCache, PartEstimate, SearchRun, Vehicle
 from .parts_catalog import CatalogPart, parts_for_vehicle
 from .scrapers import ebay, row52
 
@@ -121,48 +121,6 @@ def _record_part(session, vehicle: Vehicle, part: CatalogPart, median: float | N
     pe.queried_at = dt.datetime.utcnow()
 
 
-_TOP_SOLD_CACHE_HOURS = 24
-
-
-def _fetch_and_store_top_sold(session, vehicle: Vehicle) -> None:
-    """Fetch top 20 recently sold eBay parts for this vehicle, cache for 24 h."""
-    # Skip if results are fresh enough
-    if vehicle.top_sold_parts:
-        newest = max(
-            (p.queried_at for p in vehicle.top_sold_parts if p.queried_at),
-            default=None,
-        )
-        if newest and (dt.datetime.utcnow() - newest) < dt.timedelta(hours=_TOP_SOLD_CACHE_HOURS):
-            return
-
-    items = ebay.fetch_top_sold_parts(
-        vehicle.year or "", vehicle.make or "", vehicle.model or ""
-    )
-    time.sleep(config.EBAY_QUERY_DELAY_SEC)
-
-    # Replace stale rows
-    for old in list(vehicle.top_sold_parts):
-        session.delete(old)
-    session.flush()
-
-    now = dt.datetime.utcnow()
-    for item in items:
-        session.add(
-            TopSoldPart(
-                vehicle_id=vehicle.id,
-                title=item["title"],
-                price_usd=item["price_usd"],
-                url=item["url"],
-                sold_date_str=item["sold_date_str"],
-                queried_at=now,
-            )
-        )
-    log.info(
-        "Top-sold: %d items stored for %s %s %s",
-        len(items), vehicle.year, vehicle.make, vehicle.model,
-    )
-
-
 def run_pipeline() -> dict:
     init_db()
     started = dt.datetime.utcnow()
@@ -216,9 +174,6 @@ def run_pipeline() -> dict:
                     vehicle.year, vehicle.make, vehicle.model,
                     gross_total, net_total, len(applicable),
                 )
-
-                # Fetch top 20 recently sold parts for this specific vehicle
-                _fetch_and_store_top_sold(session, vehicle)
 
                 progress.vehicle_done(
                     "{} {} {}".format(vehicle.year, vehicle.make, vehicle.model),
