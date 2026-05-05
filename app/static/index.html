@@ -13,6 +13,8 @@
   .pill-other { background:#f3f4f6; color:#374151; }
   details > summary::-webkit-details-marker { display:none; }
   details > summary { list-style:none; cursor:pointer; }
+  /* tap highlight */
+  details > summary:active { background: #f8fafc; }
   /* Progress bar */
   #progress-banner { display:none; }
   #progress-banner.visible { display:block; }
@@ -20,22 +22,31 @@
   .progress-fill { height:100%; border-radius:9999px; background:#2563eb; transition:width 0.4s ease; }
   @keyframes indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }
   .progress-fill.indeterminate { width:25% !important; animation:indeterminate 1.4s ease infinite; }
+  /* Mobile table scroll */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
-<div class="max-w-7xl mx-auto p-6">
-  <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+<div class="max-w-7xl mx-auto px-3 py-4 sm:p-6">
+
+  <header class="flex flex-wrap items-start justify-between gap-3 mb-4 sm:mb-6">
     <div>
-      <h1 class="text-2xl font-bold">Used Vehicle Parts Search</h1>
-      <p id="status-line" class="text-sm text-slate-500">Loading status…</p>
+      <h1 class="text-xl sm:text-2xl font-bold">Used Vehicle Parts Search</h1>
+      <p id="status-line" class="text-xs sm:text-sm text-slate-500 mt-0.5">Loading status…</p>
     </div>
     <div class="flex gap-2">
-      <button id="btn-run" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50">Run now</button>
-      <button id="btn-refresh" class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-sm font-semibold px-4 py-2 rounded-lg">Refresh</button>
+      <button id="btn-run"
+        class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2.5 rounded-lg disabled:opacity-50 touch-manipulation">
+        Run now
+      </button>
+      <button id="btn-refresh"
+        class="bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 text-sm font-semibold px-4 py-2.5 rounded-lg touch-manipulation">
+        Refresh
+      </button>
     </div>
   </header>
 
-  <!-- Progress banner (visible only during a run) -->
+  <!-- Progress banner -->
   <div id="progress-banner" class="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-4">
     <div class="flex items-center justify-between mb-2">
       <span id="progress-phase" class="text-sm font-semibold text-blue-700"></span>
@@ -47,42 +58,50 @@
     <div id="progress-vehicle" class="text-xs text-slate-400 mt-1 truncate"></div>
   </div>
 
-  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex flex-wrap items-end gap-4">
-    <div>
-      <label class="text-xs font-semibold text-slate-600 block">Make</label>
-      <select id="filter-make" class="mt-1 border rounded px-2 py-1 text-sm">
-        <option value="">All</option>
-        <option value="BMW">BMW</option>
-        <option value="Volkswagen">Volkswagen</option>
-      </select>
+  <!-- Filters -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 sm:p-4 mb-4">
+    <div class="flex flex-wrap items-end gap-3 sm:gap-4">
+      <div>
+        <label class="text-xs font-semibold text-slate-600 block mb-1">Make</label>
+        <select id="filter-make" class="border rounded-lg px-2.5 py-2 text-sm min-w-[90px]">
+          <option value="">All</option>
+          <option value="BMW">BMW</option>
+          <option value="Volkswagen">VW</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-600 block mb-1">Min net value</label>
+        <div class="relative">
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+          <input id="filter-min" type="number" min="0" step="50" value="300"
+            class="border rounded-lg pl-6 pr-2 py-2 text-sm w-24" />
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-600 block mb-1">Sort by</label>
+        <select id="filter-sort" class="border rounded-lg px-2.5 py-2 text-sm">
+          <option value="value">Net value ↓</option>
+          <option value="added">Newest added</option>
+          <option value="year">Year ↓</option>
+          <option value="make">Make / model</option>
+        </select>
+      </div>
+      <div class="text-xs text-slate-400 self-end pb-2" id="result-count">—</div>
     </div>
-    <div>
-      <label class="text-xs font-semibold text-slate-600 block">Min net value (USD)</label>
-      <input id="filter-min" type="number" min="0" step="50" value="300" class="mt-1 border rounded px-2 py-1 text-sm w-28" />
-    </div>
-    <div>
-      <label class="text-xs font-semibold text-slate-600 block">Sort by</label>
-      <select id="filter-sort" class="mt-1 border rounded px-2 py-1 text-sm">
-        <option value="value">Estimated total (high→low)</option>
-        <option value="added">Recently added</option>
-        <option value="year">Year (newest first)</option>
-        <option value="make">Make / model</option>
-      </select>
-    </div>
-    <div class="text-sm text-slate-500" id="result-count">—</div>
   </section>
 
+  <!-- Vehicle cards -->
   <section id="vehicles" class="grid gap-3"></section>
 
-  <footer class="text-xs text-slate-400 mt-8">
+  <footer class="text-xs text-slate-400 mt-8 pb-4">
     Data: <a href="https://row52.com" class="underline">row52.com</a> + eBay sold listings.
-    For personal research use. Both sites' Terms of Service apply.
+    Personal research use only.
   </footer>
 </div>
 
 <script>
 const $ = (s) => document.querySelector(s);
-const fmt = (n) => n == null ? '—' : '$' + Math.round(n).toLocaleString();
+const fmt    = (n) => n == null ? '—' : '$'  + Math.round(n).toLocaleString();
 const fmtNet = (n) => n == null ? '—' : '~$' + Math.round(n).toLocaleString();
 
 async function loadStatus() {
@@ -90,12 +109,18 @@ async function loadStatus() {
   const s = await r.json();
   const lr = s.last_run;
   let str = `${s.vehicle_count} vehicles tracked. `;
-  if (s.running) str += 'A pipeline run is in progress.';
-  else if (lr && lr.finished_at) {
-    str += `Last run finished ${new Date(lr.finished_at).toLocaleString()} — ${lr.vehicles_matched} matched, ${lr.parts_queried} part queries.`;
-    if (lr.error) str += ' (errors — see /api/runs)';
+  if (s.running) {
+    str += 'Run in progress.';
+  } else if (lr && lr.finished_at) {
+    const d = new Date(lr.finished_at);
+    // Short date on mobile
+    const dateStr = window.innerWidth < 640
+      ? d.toLocaleDateString()
+      : d.toLocaleString();
+    str += `Last run ${dateStr} — ${lr.vehicles_matched} matched, ${lr.parts_queried} queries.`;
+    if (lr.error) str += ' (errors)';
   } else {
-    str += 'No runs yet — click Run now.';
+    str += 'No runs yet — tap Run now.';
   }
   $('#status-line').textContent = str;
   $('#btn-run').disabled = s.running;
@@ -104,19 +129,19 @@ async function loadStatus() {
 
 async function loadVehicles() {
   const make = $('#filter-make').value;
-  const min = parseFloat($('#filter-min').value || 0);
+  const min  = parseFloat($('#filter-min').value || 0);
   const sort = $('#filter-sort').value;
   const params = new URLSearchParams({ min_value: min, sort });
   if (make) params.set('make', make);
   const r = await fetch('/api/vehicles?' + params.toString());
   const data = await r.json();
-  $('#result-count').textContent = `${data.length} vehicle(s)`;
+  $('#result-count').textContent = `${data.length} result${data.length !== 1 ? 's' : ''}`;
 
   const root = $('#vehicles');
   root.innerHTML = '';
   if (!data.length) {
     root.innerHTML = `<div class="text-slate-500 text-sm bg-white border border-slate-200 rounded-xl p-8 text-center">
-      No vehicles match. If this is the first launch, click <b>Run now</b> — the first run takes a few minutes.
+      No vehicles match. If this is the first launch, tap <b>Run now</b>.
     </div>`;
     return;
   }
@@ -126,27 +151,38 @@ async function loadVehicles() {
     const pill = makeUpper === 'BMW' ? 'pill-bmw' : makeUpper === 'VOLKSWAGEN' ? 'pill-vw' : 'pill-other';
     const card = document.createElement('details');
     card.className = 'bg-white border border-slate-200 rounded-xl shadow-sm';
+
+    // Truncate VIN for display
+    const vinShort = v.vin ? v.vin.slice(-8) : '—';
+
     card.innerHTML = `
-      <summary class="flex items-center gap-4 p-4">
-        <img src="${v.image_url || ''}" onerror="this.style.display='none'" class="w-24 h-16 object-cover rounded bg-slate-100" />
-        <div class="flex-1">
-          <div class="flex items-center gap-2">
+      <summary class="flex items-center gap-2 sm:gap-4 p-3 sm:p-4 rounded-xl">
+        <img src="${v.image_url || ''}"
+          onerror="this.style.display='none'"
+          class="w-16 h-11 sm:w-24 sm:h-16 object-cover rounded bg-slate-100 flex-shrink-0" />
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <span class="pill ${pill}">${v.make || '—'}</span>
-            <span class="font-semibold">${v.year || ''} ${v.model || ''}</span>
+            <span class="font-semibold text-sm sm:text-base">${v.year || ''} ${v.model || ''}</span>
           </div>
-          <div class="text-xs text-slate-500 mt-1">
-            ${v.yard_name || '—'} · Row ${v.row_number || '?'} · Added ${v.date_added_to_yard || '?'} · VIN ${v.vin}
+          <div class="text-xs text-slate-500 mt-0.5 truncate">
+            ${v.yard_name || '—'} · Row ${v.row_number || '?'}
+          </div>
+          <div class="text-xs text-slate-400 truncate">
+            <span class="hidden sm:inline">Added ${v.date_added_to_yard || '?'} · </span>VIN …${vinShort}
           </div>
         </div>
-        <div class="text-right">
-          <div class="text-2xl font-bold text-emerald-700">${fmtNet(v.estimated_total_value)}</div>
-          <div class="text-xs text-slate-400">net est. · ${fmt(v.gross_total_value)} gross</div>
+        <div class="text-right flex-shrink-0">
+          <div class="text-lg sm:text-2xl font-bold text-emerald-700">${fmtNet(v.estimated_total_value)}</div>
+          <div class="text-xs text-slate-400">net</div>
+          <div class="text-xs text-slate-400">${fmt(v.gross_total_value)} gross</div>
         </div>
       </summary>
-      <div class="border-t border-slate-100 p-4 text-sm" data-parts="${v.id}">
-        <div class="text-slate-500">Loading parts…</div>
+      <div class="border-t border-slate-100 p-3 sm:p-4" data-parts="${v.id}">
+        <div class="text-slate-500 text-sm">Loading parts…</div>
       </div>
     `;
+
     card.addEventListener('toggle', async () => {
       if (!card.open) return;
       const target = card.querySelector(`[data-parts="${v.id}"]`);
@@ -155,28 +191,50 @@ async function loadVehicles() {
       const pr = await fetch(`/api/vehicles/${v.id}/parts`);
       const parts = await pr.json();
       if (!parts.length) {
-        target.innerHTML = '<div class="text-slate-500">No part estimates yet.</div>';
+        target.innerHTML = '<div class="text-slate-500 text-sm">No part estimates yet.</div>';
         return;
       }
+
       target.innerHTML = `
-        <p class="text-xs text-slate-400 mb-2">Net value = eBay sold median &minus; 16.25% fees &minus; est. shipping. Sorted highest net first.</p>
-        <table class="w-full text-sm">
-          <thead><tr class="text-left text-slate-500 border-b">
-            <th class="py-1">Part</th><th>eBay query</th><th class="text-right">eBay median</th><th class="text-right">Ship est.</th><th class="text-right font-semibold text-slate-700">Net value</th><th class="text-right">Samples</th>
-          </tr></thead>
-          <tbody>
-          ${parts.map(p => `
-            <tr class="border-b border-slate-50">
-              <td class="py-1 font-medium">${p.part_name}</td>
-              <td class="text-slate-500 text-xs"><a class="underline" target="_blank"
-                href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">${p.ebay_query}</a></td>
-              <td class="text-right text-slate-400">${fmt(p.median_price_usd)}</td>
-              <td class="text-right text-slate-400">${p.shipping_est_usd != null ? '$' + p.shipping_est_usd : '—'}</td>
-              <td class="text-right ${p.net_value_usd ? 'font-semibold text-emerald-700' : 'text-slate-400'}">${fmtNet(p.net_value_usd)}</td>
-              <td class="text-right text-slate-500">${p.sample_size}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`;
+        <p class="text-xs text-slate-400 mb-2">
+          Net = eBay median &minus; 16.25% fees &minus; shipping. Tap a part to search eBay.
+        </p>
+        <div class="table-scroll -mx-3 sm:mx-0 px-3 sm:px-0">
+          <table class="w-full text-sm min-w-[480px] sm:min-w-0">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 border-b">
+                <th class="py-1.5 pr-2 font-medium">Part</th>
+                <th class="py-1.5 pr-2 font-medium hidden sm:table-cell">eBay query</th>
+                <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Median</th>
+                <th class="py-1.5 pr-2 font-medium text-right hidden sm:table-cell">Ship</th>
+                <th class="py-1.5 font-semibold text-right text-slate-700">Net value</th>
+                <th class="py-1.5 pl-2 font-medium text-right hidden sm:table-cell">n</th>
+              </tr>
+            </thead>
+            <tbody>
+            ${parts.map(p => `
+              <tr class="border-b border-slate-50">
+                <td class="py-1.5 pr-2 font-medium">
+                  <a class="block sm:hidden text-blue-600 hover:underline" target="_blank"
+                    href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
+                    ${p.part_name}
+                  </a>
+                  <span class="hidden sm:block">${p.part_name}</span>
+                </td>
+                <td class="py-1.5 pr-2 text-slate-500 text-xs hidden sm:table-cell">
+                  <a class="underline" target="_blank"
+                    href="https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(p.ebay_query)}&LH_Sold=1&LH_Complete=1">
+                    ${p.ebay_query}
+                  </a>
+                </td>
+                <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${fmt(p.median_price_usd)}</td>
+                <td class="py-1.5 pr-2 text-right text-slate-400 hidden sm:table-cell">${p.shipping_est_usd != null ? '$' + p.shipping_est_usd : '—'}</td>
+                <td class="py-1.5 text-right ${p.net_value_usd ? 'font-semibold text-emerald-700' : 'text-slate-400'}">${fmtNet(p.net_value_usd)}</td>
+                <td class="py-1.5 pl-2 text-right text-slate-400 hidden sm:table-cell">${p.sample_size}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
     });
     root.appendChild(card);
   }
@@ -184,10 +242,7 @@ async function loadVehicles() {
 
 function updateProgressUI(p) {
   const banner = $('#progress-banner');
-  if (!p.running) {
-    banner.classList.remove('visible');
-    return;
-  }
+  if (!p.running) { banner.classList.remove('visible'); return; }
   banner.classList.add('visible');
   $('#progress-phase').textContent = p.phase_label || 'Running…';
   const fill = $('#progress-fill');
@@ -200,14 +255,12 @@ function updateProgressUI(p) {
     const pct = Math.round((p.vehicles_done / p.vehicles_total) * 100);
     fill.style.width = pct + '%';
     $('#progress-counts').textContent =
-      `${p.vehicles_done} / ${p.vehicles_total} vehicles · ${p.parts_queried} part queries`;
-    $('#progress-vehicle').textContent = p.current_vehicle
-      ? `Pricing: ${p.current_vehicle}` : '';
+      `${p.vehicles_done}/${p.vehicles_total} vehicles · ${p.parts_queried} queries`;
+    $('#progress-vehicle').textContent = p.current_vehicle ? `Pricing: ${p.current_vehicle}` : '';
   }
 }
 
 let _progressPoll = null;
-
 function startProgressPolling() {
   if (_progressPoll) return;
   _progressPoll = setInterval(async () => {
@@ -215,10 +268,8 @@ function startProgressPolling() {
     const p = await r.json();
     updateProgressUI(p);
     if (!p.running) {
-      clearInterval(_progressPoll);
-      _progressPoll = null;
-      loadStatus();
-      loadVehicles();
+      clearInterval(_progressPoll); _progressPoll = null;
+      loadStatus(); loadVehicles();
     }
   }, 2000);
 }
@@ -226,7 +277,6 @@ function startProgressPolling() {
 async function runNow() {
   $('#btn-run').disabled = true;
   await fetch('/api/run-now', { method: 'POST' });
-  // Show indeterminate bar immediately, then start polling.
   updateProgressUI({ running: true, phase: 'scraping', phase_label: 'Scraping Row52…', vehicles_total: 0 });
   startProgressPolling();
 }
