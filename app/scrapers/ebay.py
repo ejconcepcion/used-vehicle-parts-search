@@ -44,8 +44,8 @@ PRICE_RE = re.compile(r"\$([\d,]+(?:\.\d{1,2})?)")
 # HTML scraping backend
 # --------------------------------------------------------------------------
 
-def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
-    url = (
+def _ebay_url(query: str) -> str:
+    return (
         "https://www.ebay.com/sch/i.html"
         f"?_nkw={quote_plus(query)}"
         "&_sacat=0"
@@ -53,14 +53,24 @@ def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
         "&LH_Complete=1"
         "&_ipg=60"
     )
+
+
+def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
+    ebay_url = _ebay_url(query)
     log.info("eBay HTML query: %s", query)
+    proxies = {"http": config.EBAY_PROXY, "https": config.EBAY_PROXY} if config.EBAY_PROXY else None
+    if proxies:
+        log.debug("eBay request via proxy: %s", config.EBAY_PROXY.split("@")[-1])  # log host only, not credentials
+
     try:
         if _USE_CFFI:
-            # curl_cffi impersonates a real Chrome TLS fingerprint, bypassing
-            # eBay's bot-detection which keys on the TLS handshake, not just headers.
-            resp = cffi_requests.get(url, impersonate="chrome110", timeout=30)
+            # curl_cffi impersonates a real Chrome TLS fingerprint.
+            # Pair with a residential proxy when running from a datacenter IP.
+            kwargs = {"impersonate": "chrome110", "timeout": 60}
+            if proxies:
+                kwargs["proxies"] = proxies
+            resp = cffi_requests.get(ebay_url, **kwargs)
         else:
-            # Fallback: plain requests with a realistic browser UA.
             headers = {
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -69,16 +79,8 @@ def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
                 ),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "DNT": "1",
-                "Connection": "keep-alive",
-                "Upgrade-Insecure-Requests": "1",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
             }
-            resp = cffi_requests.get(url, headers=headers, timeout=30)
+            resp = _requests.get(ebay_url, headers=headers, proxies=proxies, timeout=60)
     except Exception as e:
         log.warning("eBay request failed for %r: %s", query, e)
         return None, 0, []

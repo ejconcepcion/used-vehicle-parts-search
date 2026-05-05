@@ -34,6 +34,14 @@ EBAY_QUERY_DELAY_SEC = 4.0
 EBAY_RESULTS_PER_QUERY = 20
 EBAY_CACHE_DAYS = 7
 
+# Optional proxy for eBay requests (required when running from a datacenter IP).
+# Supports HTTP, HTTPS, and SOCKS5 proxies.
+# Examples:
+#   EBAY_PROXY=http://user:pass@host:port
+#   EBAY_PROXY=socks5://user:pass@host:port
+#   EBAY_PROXY=http://host:port   (no auth)
+EBAY_PROXY = os.getenv("EBAY_PROXY", "")
+
 # --- Pipeline tuning -------------------------------------------------------
 
 MIN_VEHICLE_VALUE = 300        # hide vehicles below this in the dashboard
@@ -41,7 +49,7 @@ PARTS_PER_VEHICLE_LIMIT = 12   # cap parts queried per vehicle (cost control)
 
 # --- Scheduler -------------------------------------------------------------
 
-DAILY_RUN_HOUR = 3   # 0-23, local time
+DAILY_RUN_HOUR = 3   # 0-23, UTC (the scheduler runs in UTC)
 DAILY_RUN_MINUTE = 0
 
 # --- HTTP ------------------------------------------------------------------
