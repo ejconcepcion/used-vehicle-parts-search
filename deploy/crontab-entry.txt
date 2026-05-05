@@ -1,22 +1,26 @@
-# Cron line for the daily pipeline run.
+# Optional cron entry for the daily pipeline run on the Droplet.
 #
-# You have two ways to install this on Cloudways:
+# The FastAPI app already runs APScheduler in-process (see app/config.py —
+# DAILY_RUN_HOUR / DAILY_RUN_MINUTE, both UTC). If uvicorn is always running,
+# APScheduler alone is sufficient and no cron entry is needed.
 #
-# Option 1 - Cloudways Cron Job UI (recommended):
-#   Server -> Manage Services -> Cron Job Management -> Add new cron
-#   Set the schedule to "0 3 * * *" (3 AM server time) and the command to:
-#     /home/master/applications/{APP_NAME}/private_html/uvps/.venv/bin/python -m app.run_now >> /var/log/uvps-cron.log 2>&1
-#   Make sure the working directory matches your APP_DIR.
+# Add this cron line only if you want an independent OS-level safety net
+# (e.g. in case uvicorn crashes before the daily trigger fires):
 #
-# Option 2 - direct crontab via SSH:
-#   crontab -e
-#   then paste the line below (with paths adjusted).
+#   crontab -e        # as the uvps user
+#   # then paste the line below:
 #
-# Note: the FastAPI app already has APScheduler running an in-process daily
-# job at the configured DAILY_RUN_HOUR. Cron + APScheduler is redundant ---
-# pick ONE. Cron is more robust if uvicorn ever crashes between the daily
-# trigger time, since cron will still fire. To disable APScheduler so it
-# doesn't double-run, comment out the `scheduler.start()` line in
-# app/main.py::lifespan.
+# Runs at 03:10 UTC (10 minutes after APScheduler fires, acts as a fallback).
+# Redirect stdout/stderr to a rotating log so the file doesn't grow unbounded.
 
-0 3 * * * cd {APP_DIR} && {VENV_DIR}/bin/python -m app.run_now >> /var/log/uvps-cron.log 2>&1
+10 3 * * * cd /home/uvps/uvps && /home/uvps/uvps/.venv/bin/python -m app.run_now >> /var/log/uvps-cron.log 2>&1
+
+# To enable log rotation for that file, create /etc/logrotate.d/uvps-cron:
+#
+#   /var/log/uvps-cron.log {
+#       daily
+#       rotate 7
+#       compress
+#       missingok
+#       notifempty
+#   }

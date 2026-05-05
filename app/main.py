@@ -79,6 +79,7 @@ def list_vehicles(
                 "image_url": v.image_url,
                 "detail_url": v.detail_url,
                 "estimated_total_value": v.estimated_total_value or 0,
+                "gross_total_value": v.gross_total_value or 0,
                 "first_seen_at": v.first_seen_at.isoformat() if v.first_seen_at else None,
                 "last_seen_at": v.last_seen_at.isoformat() if v.last_seen_at else None,
             }
@@ -97,12 +98,14 @@ def vehicle_parts(vehicle_id: int) -> list[dict[str, Any]]:
                 "part_name": p.part_name,
                 "ebay_query": p.ebay_query,
                 "median_price_usd": p.median_price_usd,
+                "net_value_usd": p.net_value_usd,
+                "shipping_est_usd": p.shipping_est_usd,
                 "sample_size": p.sample_size,
                 "queried_at": p.queried_at.isoformat() if p.queried_at else None,
             }
             for p in sorted(
                 veh.parts,
-                key=lambda x: (x.median_price_usd or 0),
+                key=lambda x: (x.net_value_usd or 0),
                 reverse=True,
             )
         ]
@@ -130,7 +133,7 @@ def list_runs(limit: int = Query(20, ge=1, le=200)) -> list[dict[str, Any]]:
 
 @app.get("/api/pending-queries")
 def pending_queries() -> dict[str, Any]:
-    """Return eBay queries that are missing or stale — used by the local pricer script."""
+    """Return eBay queries that are missing or stale -- used by the local pricer script."""
     cutoff = dt.datetime.utcnow() - dt.timedelta(days=config.EBAY_CACHE_DAYS)
     with session_scope() as session:
         vehicles = session.scalars(select(Vehicle)).all()

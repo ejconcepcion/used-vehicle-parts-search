@@ -28,15 +28,12 @@ from urllib.parse import quote_plus
 import requests as _requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 load_dotenv()
-
-try:
-    from curl_cffi import requests as cffi_requests
-    _USE_CFFI = True
-except ImportError:
-    cffi_requests = None  # type: ignore
-    _USE_CFFI = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,8 +47,37 @@ BATCH_SIZE = 50          # how many results to POST at once
 
 
 # ---------------------------------------------------------------------------
-# eBay scraper (runs locally with residential IP)
+# eBay scraper — uses real Chrome to pass JS challenges
 # ---------------------------------------------------------------------------
+
+_driver = None
+
+
+def _get_driver():
+    """Return a warmed-up Chrome WebDriver."""
+    global _driver
+    if _driver is not None:
+        return _driver
+
+    log.info("Launching Chrome …")
+    opts = uc.ChromeOptions()
+    opts.add_argument("--window-size=1280,800")
+    opts.add_argument("--lang=en-US")
+    _driver = uc.Chrome(options=opts, headless=False, version_main=147)
+
+    # Warm up — visit homepage to get cookies.
+    log.info("Warming up eBay session …")
+    _driver.get("https://www.ebay.com/")
+    time.sleep(3)
+    return _driver
+
+
+def close_browser():
+    global _driver
+    if _driver:
+        _driver.quit()
+    _driver = None
+
 
 def fetch_price(query: str) -> tuple[float | None, int, list[float]]:
     url = (
@@ -60,37 +86,30 @@ def fetch_price(query: str) -> tuple[float | None, int, list[float]]:
         "&_sacat=0&LH_Sold=1&LH_Complete=1&_ipg=60"
     )
     try:
-        if _USE_CFFI:
-            resp = cffi_requests.get(url, impersonate="chrome110", timeout=30)
-        else:
-            resp = _requests.get(url, headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Accept-Language": "en-US,en;q=0.9",
-            }, timeout=30)
+        driver = _get_driver()
+        driver.get(url)
+        # Wait up to 8s for listings to appear.
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".s-card__price"))
+            )
+        except Exception:
+            log.warning("Timed out waiting for results. Page title: %r", driver.title)
+            return None, 0, []
+        html = driver.page_source
     except Exception as exc:
-        log.warning("Request error for %r: %s", query, exc)
+        log.warning("Browser error for %r: %s", query, exc)
         return None, 0, []
 
-    if not resp.ok:
-        log.warning("HTTP %d for %r", resp.status_code, query)
-        return None, 0, []
-
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(html, "lxml")
     prices: list[float] = []
-    for item in soup.select("li.s-item"):
-        title = item.select_one(".s-item__title")
-        if title and "shop on ebay" in title.get_text(strip=True).lower():
-            continue
-        price_tag = item.select_one(".s-item__price")
-        if not price_tag:
+    for tag in soup.select(".s-card__price"):
+        # Skip strikethrough (original/crossed-out) prices
+        if "strikethrough" in (tag.get("class") or []):
             continue
         nums = [
             float(m.group(1).replace(",", ""))
-            for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))
+            for m in PRICE_RE.finditer(tag.get_text(strip=True))
         ]
         if not nums:
             continue
@@ -144,8 +163,6 @@ def main() -> None:
         return
 
     log.info("%d queries to price (this will take ~%d minutes)", total, int(total * DELAY_SEC / 60))
-    if not _USE_CFFI:
-        log.warning("curl_cffi not installed — using plain requests. Install with: pip install curl_cffi")
 
     # 2. Price each query
     results: list[dict] = []
@@ -200,6 +217,7 @@ def main() -> None:
         log.warning("Could not trigger pipeline: %s", exc)
 
     log.info("Done. %d prices uploaded.", total_stored)
+    close_browser()
 
 
 if __name__ == "__main__":

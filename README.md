@@ -107,9 +107,9 @@ Tunables live in `app/config.py`:
 
 ## Deploying
 
-- **Cloudways** — see [`deploy/CLOUDWAYS.md`](deploy/CLOUDWAYS.md) for a step-by-step walkthrough plus supervisor/Nginx/cron config files in `deploy/`.
+- **DigitalOcean Droplet** — run `sudo bash deploy/deploy.sh` for first-time setup, then `sudo bash deploy/update.sh` for subsequent code updates. The scripts handle virtualenv, supervisor, and Nginx automatically.
 - **Railway / Render / Fly.io** — push the repo and point the start command at `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. SQLite is fine for a single instance; switch `DB_URL` to Postgres in `app/config.py` if you scale beyond one worker.
-- **Plain VPS** — same as Cloudways, minus the per-app Nginx vhost that Cloudways creates for you.
+- **Plain VPS** — same as the Droplet setup above.
 
 ---
 

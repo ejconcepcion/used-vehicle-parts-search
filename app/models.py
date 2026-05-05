@@ -37,7 +37,8 @@ class Vehicle(Base):
     detail_url = Column(String, nullable=True)
     first_seen_at = Column(DateTime, default=datetime.utcnow)
     last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    estimated_total_value = Column(Float, default=0.0, index=True)
+    estimated_total_value = Column(Float, default=0.0, index=True)   # net total (after fees & shipping)
+    gross_total_value = Column(Float, default=0.0)                   # gross total (raw eBay medians)
 
     parts = relationship(
         "PartEstimate",
@@ -53,7 +54,9 @@ class PartEstimate(Base):
     vehicle_id = Column(Integer, ForeignKey("vehicle.id"), nullable=False, index=True)
     part_name = Column(String, nullable=False)
     ebay_query = Column(String, nullable=False)
-    median_price_usd = Column(Float, nullable=True)
+    median_price_usd = Column(Float, nullable=True)   # gross eBay sold median
+    net_value_usd = Column(Float, nullable=True)       # after eBay fees, payment fees, shipping
+    shipping_est_usd = Column(Float, nullable=True)    # estimated shipping used in net calc
     sample_size = Column(Integer, default=0)
     queried_at = Column(DateTime, default=datetime.utcnow)
 

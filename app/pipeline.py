@@ -5,7 +5,7 @@ Steps for each run:
   2. Filter to the configured target makes (BMW + VW by default).
   3. For each vehicle, look up sold-listing medians on eBay for each
      applicable curated part.
-  4. Upsert vehicle + part rows. Recompute estimated_total_value.
+  4. Upsert vehicle + part rows. Recompute gross and net totals.
   5. Append a SearchRun audit row.
 """
 
@@ -27,6 +27,18 @@ from .parts_catalog import CatalogPart, parts_for_vehicle
 from .scrapers import ebay, row52
 
 log = logging.getLogger(__name__)
+
+# eBay fee structure (as of 2024)
+_EBAY_FEE_RATE = 0.1325   # ~13.25% final value fee for auto parts
+_PAYMENT_FEE_RATE = 0.03  # ~3% payment processing
+_NET_MULTIPLIER = 1.0 - _EBAY_FEE_RATE - _PAYMENT_FEE_RATE  # 0.8375
+
+
+def _net_value(median_usd: float | None, shipping_est: float) -> float | None:
+    """Estimated take-home after eBay fees, payment fees, and shipping."""
+    if median_usd is None:
+        return None
+    return max(0.0, median_usd * _NET_MULTIPLIER - shipping_est)
 
 
 def _cached_median(session, query: str) -> Optional[tuple[float | None, int]]:
@@ -103,6 +115,8 @@ def _record_part(session, vehicle: Vehicle, part: CatalogPart, median: float | N
         session.add(pe)
     pe.ebay_query = query
     pe.median_price_usd = median
+    pe.shipping_est_usd = part.shipping_est_usd
+    pe.net_value_usd = _net_value(median, part.shipping_est_usd)
     pe.sample_size = n
     pe.queried_at = dt.datetime.utcnow()
 
@@ -135,26 +149,34 @@ def run_pipeline() -> dict:
                 if not applicable:
                     matched += 1
                     progress.vehicle_done(
-                        f"{vehicle.year} {vehicle.make} {vehicle.model}", parts_queried
+                        "{} {} {}".format(vehicle.year, vehicle.make, vehicle.model),
+                        parts_queried,
                     )
                     continue
 
-                total = 0.0
+                gross_total = 0.0
+                net_total = 0.0
                 for part in applicable:
                     median, n, query = _resolve_part_estimate(session, vehicle, part)
                     _record_part(session, vehicle, part, median, n, query)
                     parts_queried += 1
                     if median is not None:
-                        total += median
+                        gross_total += median
+                        net = _net_value(median, part.shipping_est_usd)
+                        if net is not None:
+                            net_total += net
 
-                vehicle.estimated_total_value = total
+                vehicle.gross_total_value = gross_total
+                vehicle.estimated_total_value = net_total  # used for sorting/filtering
                 matched += 1
                 log.info(
-                    "Vehicle %s %s %s -> $%.0f (%d parts)",
-                    vehicle.year, vehicle.make, vehicle.model, total, len(applicable),
+                    "Vehicle %s %s %s -> gross $%.0f / net $%.0f (%d parts)",
+                    vehicle.year, vehicle.make, vehicle.model,
+                    gross_total, net_total, len(applicable),
                 )
                 progress.vehicle_done(
-                    f"{vehicle.year} {vehicle.make} {vehicle.model}", parts_queried
+                    "{} {} {}".format(vehicle.year, vehicle.make, vehicle.model),
+                    parts_queried,
                 )
 
     except Exception:

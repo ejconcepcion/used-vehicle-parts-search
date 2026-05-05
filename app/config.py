@@ -45,7 +45,7 @@ EBAY_PROXY = os.getenv("EBAY_PROXY", "")
 # --- Pipeline tuning -------------------------------------------------------
 
 MIN_VEHICLE_VALUE = 300        # hide vehicles below this in the dashboard
-PARTS_PER_VEHICLE_LIMIT = 12   # cap parts queried per vehicle (cost control)
+PARTS_PER_VEHICLE_LIMIT = 20   # cap parts queried per vehicle (cost control)
 
 # --- Scheduler -------------------------------------------------------------
 
