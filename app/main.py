@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from . import config, scheduler
 from .database import init_db, session_scope
@@ -139,12 +139,8 @@ def status() -> dict[str, Any]:
         last = session.scalars(
             select(SearchRun).order_by(desc(SearchRun.started_at)).limit(1)
         ).first()
-        veh_count = session.scalar(select(Vehicle).where(Vehicle.id.is_not(None)).limit(1))
-        total = session.query(Vehicle).count()
-    return {
-        "running": scheduler.is_running(),
-        "vehicle_count": total,
-        "last_run": (
+        total = session.scalar(select(func.count()).select_from(Vehicle)) or 0
+        last_run_data = (
             {
                 "started_at": last.started_at.isoformat() if last and last.started_at else None,
                 "finished_at": last.finished_at.isoformat() if last and last.finished_at else None,
@@ -155,7 +151,11 @@ def status() -> dict[str, Any]:
             }
             if last
             else None
-        ),
+        )
+    return {
+        "running": scheduler.is_running(),
+        "vehicle_count": total,
+        "last_run": last_run_data,
         "config": {
             "zip_code": config.ZIP_CODE,
             "radius_miles": config.RADIUS_MILES,
