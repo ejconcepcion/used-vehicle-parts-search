@@ -16,7 +16,6 @@ fetched once per cache window.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import statistics
@@ -24,7 +23,14 @@ import time
 from typing import Tuple
 from urllib.parse import quote_plus
 
-import requests
+try:
+    from curl_cffi import requests as cffi_requests
+    _USE_CFFI = True
+except ImportError:
+    import requests as cffi_requests  # type: ignore[no-redef]
+    _USE_CFFI = False
+
+import requests as _requests  # standard requests, kept for OAuth calls
 from bs4 import BeautifulSoup
 
 from .. import config
@@ -47,23 +53,33 @@ def fetch_sold_via_html(query: str) -> Tuple[float | None, int, list[float]]:
         "&LH_Complete=1"
         "&_ipg=60"
     )
-    headers = {
-        "User-Agent": config.USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-    }
     log.info("eBay HTML query: %s", query)
     try:
-        resp = requests.get(url, headers=headers, timeout=30)
-    except requests.RequestException as e:
+        if _USE_CFFI:
+            # curl_cffi impersonates a real Chrome TLS fingerprint, bypassing
+            # eBay's bot-detection which keys on the TLS handshake, not just headers.
+            resp = cffi_requests.get(url, impersonate="chrome110", timeout=30)
+        else:
+            # Fallback: plain requests with a realistic browser UA.
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+            resp = cffi_requests.get(url, headers=headers, timeout=30)
+    except Exception as e:
         log.warning("eBay request failed for %r: %s", query, e)
         return None, 0, []
 
@@ -123,7 +139,7 @@ def _ebay_oauth_token() -> str | None:
     if cached and cached[0] > now + 60:
         return cached[1]
 
-    resp = requests.post(
+    resp = _requests.post(
         f"{config.EBAY_API_BASE}/identity/v1/oauth2/token",
         auth=(config.EBAY_CLIENT_ID, config.EBAY_CLIENT_SECRET),
         data={
@@ -154,7 +170,7 @@ def fetch_sold_via_api(query: str) -> Tuple[float | None, int, list[float]]:
         return None, 0, []
 
     headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(
+    resp = _requests.get(
         f"{config.EBAY_API_BASE}/buy/browse/v1/item_summary/search",
         params={"q": query, "limit": str(config.EBAY_RESULTS_PER_QUERY)},
         headers=headers,
