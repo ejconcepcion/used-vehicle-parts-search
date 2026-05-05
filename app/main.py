@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,11 +12,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 
 from . import config, progress, scheduler
 from .database import init_db, session_scope
-from .models import PartEstimate, SearchRun, Vehicle
+from .models import EbayPriceCache, PartEstimate, SearchRun, Vehicle
+from .parts_catalog import parts_for_vehicle
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +126,59 @@ def list_runs(limit: int = Query(20, ge=1, le=200)) -> list[dict[str, Any]]:
             }
             for r in rows
         ]
+
+
+@app.get("/api/pending-queries")
+def pending_queries() -> dict[str, Any]:
+    """Return eBay queries that are missing or stale — used by the local pricer script."""
+    cutoff = dt.datetime.utcnow() - dt.timedelta(days=config.EBAY_CACHE_DAYS)
+    with session_scope() as session:
+        vehicles = session.scalars(select(Vehicle)).all()
+        seen: set[str] = set()
+        pending: list[str] = []
+        for v in vehicles:
+            applicable = parts_for_vehicle(v.make or "", v.model or "")
+            applicable = applicable[: config.PARTS_PER_VEHICLE_LIMIT]
+            for part in applicable:
+                query = part.query_template.format(
+                    year=v.year or "", model=v.model or ""
+                ).strip()
+                query = " ".join(query.split())
+                if query in seen:
+                    continue
+                seen.add(query)
+                cache_row = session.scalar(
+                    select(EbayPriceCache).where(EbayPriceCache.query == query)
+                )
+                if cache_row is None or cache_row.queried_at < cutoff:
+                    pending.append(query)
+    return {"queries": pending, "total": len(pending)}
+
+
+class EbayCacheItem(BaseModel):
+    query: str
+    median_price_usd: float | None
+    sample_size: int
+    raw_prices: list[float] = []
+
+
+@app.post("/api/ebay-cache")
+def update_ebay_cache(items: list[EbayCacheItem]) -> dict[str, Any]:
+    """Accept eBay price results from the local pricer and store in cache."""
+    now = dt.datetime.utcnow()
+    with session_scope() as session:
+        for item in items:
+            cache_row = session.scalar(
+                select(EbayPriceCache).where(EbayPriceCache.query == item.query)
+            )
+            if cache_row is None:
+                cache_row = EbayPriceCache(query=item.query)
+                session.add(cache_row)
+            cache_row.median_price_usd = item.median_price_usd
+            cache_row.sample_size = item.sample_size
+            cache_row.raw_prices_json = json.dumps(item.raw_prices)
+            cache_row.queried_at = now
+    return {"stored": len(items)}
 
 
 @app.get("/api/progress")
