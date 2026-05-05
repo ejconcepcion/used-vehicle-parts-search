@@ -43,6 +43,10 @@
         class="bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 text-sm font-semibold px-4 py-2.5 rounded-lg touch-manipulation">
         Refresh
       </button>
+      <button id="btn-clear"
+        class="bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 text-sm font-semibold px-4 py-2.5 rounded-lg touch-manipulation">
+        Clear cache
+      </button>
     </div>
   </header>
 
@@ -316,8 +320,20 @@ async function runNow() {
   startProgressPolling();
 }
 
+async function clearCache() {
+  if (!confirm('Clear all eBay price cache and top-sold data? The next run will re-fetch everything from eBay.')) return;
+  const btn = $('#btn-clear');
+  btn.disabled = true;
+  btn.textContent = 'Clearing…';
+  await fetch('/api/clear-cache', { method: 'POST' });
+  btn.textContent = 'Clear cache';
+  btn.disabled = false;
+  loadStatus();
+}
+
 $('#btn-run').addEventListener('click', runNow);
 $('#btn-refresh').addEventListener('click', () => { loadStatus(); loadVehicles(); });
+$('#btn-clear').addEventListener('click', clearCache);
 ['filter-make', 'filter-min', 'filter-sort'].forEach(id => {
   $('#' + id).addEventListener('change', loadVehicles);
 });

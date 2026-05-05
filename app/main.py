@@ -18,6 +18,7 @@ from sqlalchemy import desc, func, select
 from . import config, progress, scheduler
 from .database import init_db, session_scope
 from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
+from sqlalchemy import delete
 from .parts_catalog import parts_for_vehicle
 
 log = logging.getLogger(__name__)
@@ -204,6 +205,16 @@ def update_ebay_cache(items: list[EbayCacheItem]) -> dict[str, Any]:
             cache_row.raw_prices_json = json.dumps(item.raw_prices)
             cache_row.queried_at = now
     return {"stored": len(items)}
+
+
+@app.post("/api/clear-cache")
+def clear_cache() -> dict[str, Any]:
+    """Delete all eBay price cache and top-sold rows so the next run re-fetches everything."""
+    with session_scope() as session:
+        price_rows = session.execute(delete(EbayPriceCache)).rowcount
+        top_rows   = session.execute(delete(TopSoldPart)).rowcount
+    log.info("Cache cleared: %d price rows, %d top-sold rows", price_rows, top_rows)
+    return {"cleared_price_cache": price_rows, "cleared_top_sold": top_rows}
 
 
 @app.get("/api/progress")
