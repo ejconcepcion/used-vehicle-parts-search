@@ -13,12 +13,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import desc, func, select
+from sqlalchemy import delete, desc, func, select
 
 from . import config, progress, scheduler
 from .database import init_db, session_scope
 from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
-from sqlalchemy import delete
 from .parts_catalog import parts_for_vehicle
 
 log = logging.getLogger(__name__)
@@ -41,11 +40,15 @@ app = FastAPI(title="Used Vehicle Parts Search", lifespan=lifespan)
 
 
 def _parse_yard_date(date_str: str | None) -> dt.date | None:
-    """Parse Row52 date_added_to_yard string (M/D/YYYY or MM/DD/YYYY) to a date."""
+    """Parse Row52 date_added_to_yard string to a date.
+
+    Row52 renders dates as 'Apr 28, 2026' (%b %d, %Y).
+    Returns None if the string is missing or unparseable.
+    """
     if not date_str:
         return None
     try:
-        return dt.datetime.strptime(date_str.strip(), "%m/%d/%Y").date()
+        return dt.datetime.strptime(date_str.strip(), "%b %d, %Y").date()
     except ValueError:
         return None
 
@@ -85,10 +88,11 @@ def list_vehicles(
         stmt = stmt.limit(limit)
         rows = session.scalars(stmt).all()
 
-        # Date filter — done in Python since date_added_to_yard is a string
+        # Date filter -- done in Python since date_added_to_yard is a string.
+        # Vehicles with missing/unparseable dates are included (fail open).
         rows = [
             v for v in rows
-            if (_parse_yard_date(v.date_added_to_yard) or dt.date.min) >= cutoff_date
+            if (_parse_yard_date(v.date_added_to_yard) or dt.date.today()) >= cutoff_date
         ]
 
         return [
@@ -309,10 +313,10 @@ def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
     except sqlalchemy.exc.OperationalError as exc:
         msg = str(exc)
         if "database is locked" in msg:
-            log.warning("top-sold-cache: database locked — pipeline may be running")
+            log.warning("top-sold-cache: database locked -- pipeline may be running")
             raise HTTPException(
                 status_code=503,
-                detail="Database is locked — the pipeline is likely running. Retry in a minute.",
+                detail="Database is locked -- the pipeline is likely running. Retry in a minute.",
             )
         log.exception("top-sold-cache: database error")
         raise HTTPException(status_code=500, detail=f"Database error: {msg}")
