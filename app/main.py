@@ -40,6 +40,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Used Vehicle Parts Search", lifespan=lifespan)
 
 
+def _parse_yard_date(date_str: str | None) -> dt.date | None:
+    """Parse Row52 date_added_to_yard string (M/D/YYYY or MM/DD/YYYY) to a date."""
+    if not date_str:
+        return None
+    try:
+        return dt.datetime.strptime(date_str.strip(), "%m/%d/%Y").date()
+    except ValueError:
+        return None
+
+
 @app.get("/api/vehicles")
 def list_vehicles(
     make: str | None = Query(None),
@@ -48,6 +58,9 @@ def list_vehicles(
     sort: str = Query("value", regex="^(value|year|added|make)$"),
     limit: int = Query(500, ge=1, le=2000),
 ) -> list[dict[str, Any]]:
+    cutoff_date = dt.date.today() - dt.timedelta(days=7)
+    min_year = 2010
+
     with session_scope() as session:
         stmt = select(Vehicle)
         if make:
@@ -56,6 +69,9 @@ def list_vehicles(
             stmt = stmt.where(Vehicle.yard_name == yard)
         if min_value > 0:
             stmt = stmt.where(Vehicle.estimated_total_value >= min_value)
+
+        # Year filter (SQL)
+        stmt = stmt.where(Vehicle.year > min_year)
 
         if sort == "value":
             stmt = stmt.order_by(desc(Vehicle.estimated_total_value))
@@ -68,6 +84,12 @@ def list_vehicles(
 
         stmt = stmt.limit(limit)
         rows = session.scalars(stmt).all()
+
+        # Date filter — done in Python since date_added_to_yard is a string
+        rows = [
+            v for v in rows
+            if (_parse_yard_date(v.date_added_to_yard) or dt.date.min) >= cutoff_date
+        ]
 
         return [
             {
