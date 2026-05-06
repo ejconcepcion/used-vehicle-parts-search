@@ -10,7 +10,7 @@ Requires SERVER_URL in your local .env file:
     SERVER_URL=https://parts.islandroots.com
 
 Dependencies (install once):
-    pip install requests beautifulsoup4 lxml python-dotenv undetected-chromedriver selenium
+    pip install requests beautifulsoup4 lxml python-dotenv
 """
 
 from __future__ import annotations
@@ -24,13 +24,9 @@ import time
 from collections import defaultdict
 from urllib.parse import quote_plus
 
-import requests as _requests
+import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 
 load_dotenv()
 
@@ -41,59 +37,149 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 PRICE_RE  = re.compile(r"\$([\d,]+(?:\.\d{1,2})?)")
-DELAY_SEC = 2.0   # polite pause between vehicles
+DELAY_SEC = 3.0   # polite pause between eBay requests
 TOP_N     = 30    # unique parts to return per vehicle
+DEBUG     = False  # set True via --debug
+
+# Realistic browser headers
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+# Shared session keeps cookies across requests (important for eBay)
+_session = requests.Session()
+_session.headers.update(HEADERS)
+_ebay_warmed = False
 
 
-# ---------------------------------------------------------------------------
-# Chrome browser — opened once, reused for all searches
-# ---------------------------------------------------------------------------
-
-_driver = None
-
-
-def _get_driver():
-    global _driver
-    if _driver is not None:
-        return _driver
-    log.info("Launching Chrome …")
-    opts = uc.ChromeOptions()
-    opts.add_argument("--window-size=1280,800")
-    opts.add_argument("--lang=en-US")
-    _driver = uc.Chrome(options=opts, headless=False, version_main=147)
-    log.info("Warming up eBay session …")
-    _driver.get("https://www.ebay.com/")
-    time.sleep(3)
-    return _driver
-
-
-def close_browser():
-    global _driver
-    if _driver:
-        _driver.quit()
-    _driver = None
-
-
-def _get_html(url: str) -> str | None:
-    """Load a URL in Chrome, wait for listings, return page source."""
+def _warm_up():
+    """Visit eBay homepage once to get session cookies before searching."""
+    global _ebay_warmed
+    if _ebay_warmed:
+        return
     try:
-        driver = _get_driver()
-        driver.get(url)
-        try:
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "li.s-item"))
-            )
-        except Exception:
-            log.warning("Timed out waiting for results. Title: %r", driver.title)
-            return None
-        return driver.page_source
+        log.info("Warming up eBay session …")
+        _session.get("https://www.ebay.com/", timeout=20)
+        time.sleep(2)
+        _ebay_warmed = True
     except Exception as exc:
-        log.warning("Browser error: %s", exc)
+        log.warning("Warm-up failed (continuing anyway): %s", exc)
+        _ebay_warmed = True
+
+
+def _get_html(url: str, label: str = "") -> str | None:
+    """Fetch a URL and return HTML. Logs title and item count for debugging."""
+    _warm_up()
+    try:
+        resp = _session.get(url, timeout=30)
+        if not resp.ok:
+            log.warning("eBay returned HTTP %d for %s", resp.status_code, label or url[:80])
+            return None
+        html = resp.text
+
+        soup = BeautifulSoup(html, "lxml")
+        title = soup.title.string.strip() if soup.title else "(no title)"
+        s_items = len(soup.select("li.s-item"))
+        s_cards = len(soup.select(".s-card"))
+        log.info("  [page] %r  li.s-item=%d  .s-card=%d", title[:80], s_items, s_cards)
+
+        if DEBUG:
+            with open("debug_ebay.html", "w", encoding="utf-8") as f:
+                f.write(html)
+            log.info("  [debug] saved debug_ebay.html")
+
+        return html
+    except Exception as exc:
+        log.warning("Request error for %s: %s", label or url[:80], exc)
         return None
 
 
+def _parse_items(html: str) -> list[dict]:
+    """Parse eBay search results — handles both s-item and s-card layouts."""
+    soup = BeautifulSoup(html, "lxml")
+    results = []
+
+    # --- Modern s-card layout ---
+    for card in soup.select(".s-card"):
+        title_tag = card.select_one(".s-card__title, .s-card__title--has-price")
+        if not title_tag:
+            continue
+        title = title_tag.get_text(strip=True)
+        if "shop on ebay" in title.lower():
+            continue
+
+        price_tag = card.select_one(".s-card__price")
+        if not price_tag:
+            continue
+        nums = [float(m.group(1).replace(",", ""))
+                for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))]
+        if not nums:
+            continue
+        price = sum(nums) / len(nums) if len(nums) > 1 else nums[0]
+
+        link_tag = card.select_one("a.s-card__link, a[href*='/itm/']")
+        item_url = ""
+        if link_tag and link_tag.get("href"):
+            item_url = link_tag["href"].split("?")[0]
+
+        sold_date = ""
+        for sel in (".s-card__subtitle", ".s-card__attribute"):
+            date_tag = card.select_one(sel)
+            if date_tag:
+                sold_date = date_tag.get_text(strip=True)
+                break
+
+        results.append({"title": title, "price_usd": price,
+                         "url": item_url, "sold_date_str": sold_date})
+
+    # --- Classic s-item layout (fallback) ---
+    if not results:
+        for item in soup.select("li.s-item"):
+            title_tag = item.select_one(".s-item__title")
+            if not title_tag:
+                continue
+            title = title_tag.get_text(strip=True)
+            if "shop on ebay" in title.lower():
+                continue
+
+            price_tag = item.select_one(".s-item__price")
+            if not price_tag:
+                continue
+            nums = [float(m.group(1).replace(",", ""))
+                    for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))]
+            if not nums:
+                continue
+            price = sum(nums) / len(nums) if len(nums) > 1 else nums[0]
+
+            link_tag = item.select_one("a.s-item__link")
+            item_url = ""
+            if link_tag and link_tag.get("href"):
+                item_url = link_tag["href"].split("?")[0]
+
+            sold_date = ""
+            for sel in (".s-item__caption--signal", ".s-item__endedDate", ".POSITIVE"):
+                date_tag = item.select_one(sel)
+                if date_tag:
+                    sold_date = date_tag.get_text(strip=True)
+                    break
+
+            results.append({"title": title, "price_usd": price,
+                             "url": item_url, "sold_date_str": sold_date})
+
+    return results
+
+
 # ---------------------------------------------------------------------------
-# Deduplication helpers
+# Deduplication
 # ---------------------------------------------------------------------------
 
 _NOISE_RE = re.compile(
@@ -107,7 +193,6 @@ _NOISE_RE = re.compile(
 
 
 def _part_key(title: str, year, make: str, model: str) -> str:
-    """Normalize a listing title to a short dedup key."""
     t = title.lower()
     for word in [str(year)] + make.lower().split() + model.lower().split():
         t = re.sub(r"\b" + re.escape(word) + r"\b", " ", t)
@@ -119,7 +204,6 @@ def _part_key(title: str, year, make: str, model: str) -> str:
 
 
 def _deduplicate(raw: list[dict], year, make: str, model: str) -> list[dict]:
-    """Group listings by normalized part key, average prices, return sorted list."""
     groups: dict[str, list[dict]] = defaultdict(list)
     for item in raw:
         key = _part_key(item["title"], year, make, model)
@@ -146,64 +230,31 @@ def _deduplicate(raw: list[dict], year, make: str, model: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def fetch_top_sold(year, make: str, model: str, n: int = TOP_N) -> list[dict]:
-    """Search eBay sold listings for a vehicle and return top n unique parts by avg price."""
+    """Search eBay sold listings for a vehicle, deduplicate, return top n by avg price."""
     query = f"{year} {make} {model}"
-    # Fetch several pages so deduplication still leaves us with n unique parts
     raw: list[dict] = []
+
     for page in range(1, 5):
         url = (
             "https://www.ebay.com/sch/i.html"
             f"?_nkw={quote_plus(query)}"
-            "&_sacat=33637"       # Car & Truck Parts & Accessories
+            "&_sacat=0"
             "&LH_Sold=1&LH_Complete=1"
-            "&_sop=16"            # price highest first
+            "&rt=nc"
             f"&_ipg=60&_pgn={page}"
         )
-        html = _get_html(url)
+        html = _get_html(url, label=f"{query} p{page}")
         if not html:
             break
 
-        soup = BeautifulSoup(html, "lxml")
-        page_count = 0
-        for item in soup.select("li.s-item"):
-            title_tag = item.select_one(".s-item__title")
-            if not title_tag:
-                continue
-            title = title_tag.get_text(strip=True)
-            if "shop on ebay" in title.lower():
-                continue
+        page_items = _parse_items(html)
+        log.debug("  page %d: %d items parsed", page, len(page_items))
+        raw.extend(page_items)
 
-            price_tag = item.select_one(".s-item__price")
-            if not price_tag:
-                continue
-            nums = [
-                float(m.group(1).replace(",", ""))
-                for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))
-            ]
-            if not nums:
-                continue
-            price = sum(nums) / len(nums) if len(nums) > 1 else nums[0]
-
-            link_tag = item.select_one("a.s-item__link")
-            item_url = ""
-            if link_tag and link_tag.get("href"):
-                item_url = link_tag["href"].split("?")[0]
-
-            sold_date = ""
-            for sel in (".s-item__caption--signal", ".s-item__endedDate", ".POSITIVE"):
-                date_tag = item.select_one(sel)
-                if date_tag:
-                    sold_date = date_tag.get_text(strip=True)
-                    break
-
-            raw.append({"title": title, "price_usd": price,
-                         "url": item_url, "sold_date_str": sold_date})
-            page_count += 1
-
-        if page_count < 10:
-            break   # reached the last page
+        if len(page_items) < 10:
+            break  # last page
         if page < 4:
-            time.sleep(1)
+            time.sleep(1.5)
 
     deduped = _deduplicate(raw, year, make, model)
     return deduped[:n]
@@ -219,7 +270,14 @@ def main() -> None:
                         help="Server base URL, e.g. https://parts.islandroots.com")
     parser.add_argument("--dry-run", action="store_true",
                         help="Fetch data but don't push to server")
+    parser.add_argument("--limit", type=int, default=0,
+                        help="Only process the first N vehicles (default: all)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Save the first eBay page HTML to debug_ebay.html")
     args = parser.parse_args()
+
+    global DEBUG
+    DEBUG = args.debug
 
     server = args.server.rstrip("/")
     if not server:
@@ -228,9 +286,8 @@ def main() -> None:
 
     log.info("Connecting to %s …", server)
 
-    # Fetch vehicles that need a top-sold refresh (missing or older than 24 h)
     try:
-        r = _requests.get(f"{server}/api/pending-top-sold", timeout=30)
+        r = requests.get(f"{server}/api/pending-top-sold", timeout=30)
         r.raise_for_status()
     except Exception as exc:
         log.error("Could not reach server: %s", exc)
@@ -238,6 +295,11 @@ def main() -> None:
 
     vehicles = r.json()["vehicles"]
     total    = r.json()["total"]
+
+    if args.limit:
+        vehicles = vehicles[:args.limit]
+        total = len(vehicles)
+        log.info("(limited to first %d vehicle(s))", total)
 
     if not vehicles:
         log.info("All vehicles are up to date — nothing to do.")
@@ -264,22 +326,19 @@ def main() -> None:
 
     if args.dry_run:
         log.info("Dry run — skipping upload.")
-        close_browser()
         return
 
     log.info("Uploading results …")
     try:
-        r = _requests.post(f"{server}/api/top-sold-cache", json=batch, timeout=60)
+        r = requests.post(f"{server}/api/top-sold-cache", json=batch, timeout=60)
         r.raise_for_status()
         log.info("Uploaded %d items.", r.json().get("stored", 0))
     except Exception as exc:
         log.error("Upload failed: %s", exc)
-        close_browser()
         sys.exit(1)
 
-    # Trigger pipeline so Row52 data stays current
     try:
-        r = _requests.post(f"{server}/api/run-now", timeout=30)
+        r = requests.post(f"{server}/api/run-now", timeout=30)
         if r.status_code == 202:
             log.info("Pipeline started — check the dashboard in a few minutes.")
         elif r.status_code == 409:
@@ -287,7 +346,6 @@ def main() -> None:
     except Exception as exc:
         log.warning("Could not trigger pipeline: %s", exc)
 
-    close_browser()
     log.info("Done.")
 
 
