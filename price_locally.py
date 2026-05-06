@@ -544,23 +544,41 @@ def main() -> None:
         log.info("Dry run — skipping upload.")
         return
 
-    # Save the outgoing batch so we can inspect / replay if upload fails
-    with open("last_batch.json", "w", encoding="utf-8") as f:
+    # Save the outgoing batch so we can inspect / replay if upload fails.
+    # Write to a temp file first then replace, so the file is never half-written
+    # and is always valid JSON (avoids null-byte corruption from in-place overwrites).
+    import tempfile, os
+    tmp_path = "last_batch.json.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(batch, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, "last_batch.json")
     log.info("Uploading results … (batch saved to last_batch.json)")
 
-    try:
-        r = requests.post(f"{server}/api/top-sold-cache", json=batch, timeout=120)
-    except Exception as exc:
-        log.error("Upload network error: %s", exc)
-        sys.exit(1)
+    for attempt in range(1, 4):
+        try:
+            r = requests.post(f"{server}/api/top-sold-cache", json=batch, timeout=120)
+        except Exception as exc:
+            log.error("Upload network error: %s", exc)
+            sys.exit(1)
 
-    if not r.ok:
-        log.error("Upload failed: HTTP %d", r.status_code)
-        body_preview = r.text[:1000] if r.text else "(empty body)"
-        log.error("Server response body: %s", body_preview)
-        log.error("Inspect last_batch.json — to retry without re-fetching, "
-                  "POST it to %s/api/top-sold-cache.", server)
+        if r.status_code == 503:
+            wait = 60 * attempt
+            log.warning("Server busy (503) — pipeline may be running. Retrying in %ds … (attempt %d/3)", wait, attempt)
+            time.sleep(wait)
+            continue
+
+        if not r.ok:
+            log.error("Upload failed: HTTP %d", r.status_code)
+            body_preview = r.text[:1000] if r.text else "(empty body)"
+            log.error("Server response body: %s", body_preview)
+            log.error("Inspect last_batch.json — to retry without re-fetching, "
+                      "POST it to %s/api/top-sold-cache.", server)
+            sys.exit(1)
+
+        break  # success
+    else:
+        log.error("Upload failed after 3 retries (server still busy). "
+                  "Wait for the pipeline to finish, then POST last_batch.json manually.")
         sys.exit(1)
     log.info("Uploaded %d items.", r.json().get("stored", 0))
 

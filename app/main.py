@@ -260,27 +260,43 @@ class TopSoldBatchEntry(BaseModel):
 @app.post("/api/top-sold-cache")
 def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
     """Accept top-sold results from the local pricer and store them."""
+    import sqlalchemy.exc
     now = dt.datetime.utcnow()
     total_stored = 0
-    with session_scope() as session:
-        for entry in batch:
-            veh = session.get(Vehicle, entry.vehicle_id)
-            if veh is None:
-                continue
-            for old in list(veh.top_sold_parts):
-                session.delete(old)
-            session.flush()
-            for item in entry.items:
-                session.add(TopSoldPart(
-                    vehicle_id=entry.vehicle_id,
-                    title=item.title,
-                    price_usd=item.price_usd,
-                    url=item.url,
-                    sold_date_str=item.sold_date_str,
-                    sample_count=item.sample_count,
-                    queried_at=now,
-                ))
-            total_stored += len(entry.items)
+    try:
+        with session_scope() as session:
+            for entry in batch:
+                veh = session.get(Vehicle, entry.vehicle_id)
+                if veh is None:
+                    log.warning("top-sold-cache: vehicle_id=%d not found, skipping", entry.vehicle_id)
+                    continue
+                for old in list(veh.top_sold_parts):
+                    session.delete(old)
+                session.flush()
+                for item in entry.items:
+                    session.add(TopSoldPart(
+                        vehicle_id=entry.vehicle_id,
+                        title=item.title,
+                        price_usd=item.price_usd,
+                        url=item.url,
+                        sold_date_str=item.sold_date_str,
+                        sample_count=item.sample_count,
+                        queried_at=now,
+                    ))
+                total_stored += len(entry.items)
+    except sqlalchemy.exc.OperationalError as exc:
+        msg = str(exc)
+        if "database is locked" in msg:
+            log.warning("top-sold-cache: database locked — pipeline may be running")
+            raise HTTPException(
+                status_code=503,
+                detail="Database is locked — the pipeline is likely running. Retry in a minute.",
+            )
+        log.exception("top-sold-cache: database error")
+        raise HTTPException(status_code=500, detail=f"Database error: {msg}")
+    except Exception as exc:
+        log.exception("top-sold-cache: unexpected error")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {exc}")
     log.info("Top-sold cache updated: %d items across %d vehicles", total_stored, len(batch))
     return {"stored": total_stored}
 

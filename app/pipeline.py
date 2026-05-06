@@ -142,6 +142,10 @@ def run_pipeline() -> dict:
         progress.set_pricing(seen)
 
         for v in vehicles_raw:
+            # ── Step 1: short read/write session — upsert vehicle, check cache ──
+            # We close the session before making slow eBay network calls so that
+            # the SQLite write lock is not held for minutes at a time (which would
+            # block the web API endpoints with a "database is locked" error).
             with session_scope() as session:
                 vehicle = _upsert_vehicle(session, v)
                 applicable = parts_for_vehicle(vehicle.make or "", vehicle.model or "")
@@ -154,10 +158,56 @@ def run_pipeline() -> dict:
                     )
                     continue
 
-                gross_total = 0.0
-                net_total = 0.0
+                # Resolve what we can from cache (no network I/O, fast).
+                vehicle_id   = vehicle.id
+                vehicle_year = vehicle.year
+                vehicle_make = vehicle.make or ""
+                vehicle_model = vehicle.model or ""
+                label = "{} {} {}".format(vehicle_year, vehicle_make, vehicle_model)
+
+                cached_results: list[tuple] = []   # (part, median, n, query)
+                parts_needing_fetch: list[CatalogPart] = []
                 for part in applicable:
-                    median, n, query = _resolve_part_estimate(session, vehicle, part)
+                    query = part.query_template.format(
+                        year=vehicle_year or "", model=vehicle_model
+                    ).strip()
+                    query = " ".join(query.split())
+                    hit = _cached_median(session, query)
+                    if hit is not None:
+                        median, n = hit
+                        cached_results.append((part, median, n, query))
+                    else:
+                        parts_needing_fetch.append(part)
+
+            # ── Step 2: slow eBay fetches — NO session open ──────────────────
+            fetched_results: list[tuple] = []      # (part, median, n, query)
+            for part in parts_needing_fetch:
+                query = part.query_template.format(
+                    year=vehicle_year or "", model=vehicle_model
+                ).strip()
+                query = " ".join(query.split())
+                median, n, raw = ebay.fetch_sold_median(query)
+                fetched_results.append((part, median, n, query, raw))
+                time.sleep(config.EBAY_QUERY_DELAY_SEC)
+
+            # ── Step 3: short write session — persist results ─────────────────
+            with session_scope() as session:
+                # Re-fetch vehicle by id (the earlier session is closed).
+                vehicle = session.get(Vehicle, vehicle_id)
+                if vehicle is None:
+                    continue  # shouldn't happen, but be safe
+
+                # Persist newly fetched eBay results to cache.
+                for part, median, n, query, raw in fetched_results:
+                    _store_cache(session, query, median, n, raw)
+
+                gross_total = 0.0
+                net_total   = 0.0
+                all_results = cached_results + [
+                    (part, median, n, query)
+                    for part, median, n, query, _ in fetched_results
+                ]
+                for part, median, n, query in all_results:
                     _record_part(session, vehicle, part, median, n, query)
                     parts_queried += 1
                     if median is not None:
@@ -166,19 +216,15 @@ def run_pipeline() -> dict:
                         if net is not None:
                             net_total += net
 
-                vehicle.gross_total_value = gross_total
-                vehicle.estimated_total_value = net_total  # used for sorting/filtering
+                vehicle.gross_total_value     = gross_total
+                vehicle.estimated_total_value = net_total
                 matched += 1
                 log.info(
-                    "Vehicle %s %s %s -> gross $%.0f / net $%.0f (%d parts)",
-                    vehicle.year, vehicle.make, vehicle.model,
-                    gross_total, net_total, len(applicable),
+                    "Vehicle %s -> gross $%.0f / net $%.0f (%d parts, %d fetched)",
+                    label, gross_total, net_total, len(all_results), len(fetched_results),
                 )
 
-                progress.vehicle_done(
-                    "{} {} {}".format(vehicle.year, vehicle.make, vehicle.model),
-                    parts_queried,
-                )
+                progress.vehicle_done(label, parts_queried)
 
     except Exception:
         error = traceback.format_exc()
