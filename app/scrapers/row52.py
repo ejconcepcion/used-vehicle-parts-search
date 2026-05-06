@@ -8,6 +8,7 @@ Polite: 2-second delay between page fetches, identifying User-Agent.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 import time
@@ -23,6 +24,10 @@ log = logging.getLogger(__name__)
 
 SEARCH_URL = "https://row52.com/Search"
 ROW52_HOME = "https://row52.com"
+
+# Vehicles outside these bounds are skipped at scrape time.
+_MIN_YEAR = 2005
+_MAX_YARD_AGE_DAYS = 7
 
 
 def _build_url(zip_code: str, distance: int, page: int = 1, location_id: int = 0) -> str:
@@ -59,11 +64,20 @@ def _parse_total_pages(soup: BeautifulSoup) -> int:
     producing a page count roughly 30x too small.
     """
     text = soup.get_text(" ", strip=True)
-    # Row52 pager text: "... of 491 Vehicle Info ..."
     m = re.search(r"of\s+(\d+)", text)
     if not m:
         return 1
     return max(1, int(m.group(1)))
+
+
+def _parse_yard_date(date_str: str | None) -> dt.date | None:
+    """Parse Row52 date string 'Apr 28, 2026' -> date. Returns None if unparseable."""
+    if not date_str:
+        return None
+    try:
+        return dt.datetime.strptime(date_str.strip(), "%b %d, %Y").date()
+    except ValueError:
+        return None
 
 
 def _parse_vehicle(block: Tag) -> dict | None:
@@ -84,8 +98,6 @@ def _parse_vehicle(block: Tag) -> dict | None:
     image_url = img["src"] if img and img.get("src") else None
 
     # Detail link (already canonical: /Vehicle/Index/{VIN})
-    # Match by href pattern to avoid picking up the yard's itemprop="url" link,
-    # which also lives inside this block.
     link = block.find("a", href=re.compile(r"/Vehicle/Index/", re.I))
     detail_url = None
     if link and link.get("href"):
@@ -129,12 +141,23 @@ def _parse_vehicle(block: Tag) -> dict | None:
 
 
 def _yield_matches(soup: BeautifulSoup, targets: set[str]) -> Iterator[dict]:
+    """Yield vehicles matching target makes, min year, and max yard age."""
+    cutoff = dt.date.today() - dt.timedelta(days=_MAX_YARD_AGE_DAYS)
     for block in soup.find_all(attrs={"itemtype": "http://schema.org/Thing/Automobile"}):
         v = _parse_vehicle(block)
         if not v:
             continue
-        if v["make"] and v["make"].upper() in targets:
-            yield v
+        # Make filter
+        if not (v["make"] and v["make"].upper() in targets):
+            continue
+        # Year filter (skip if year known and too old)
+        if v["year"] is not None and v["year"] < _MIN_YEAR:
+            continue
+        # Date filter (skip if date known and too old; include if date unknown)
+        yard_date = _parse_yard_date(v["date_added_to_yard"])
+        if yard_date is not None and yard_date < cutoff:
+            continue
+        yield v
 
 
 def _fetch_pages(
@@ -149,7 +172,7 @@ def _fetch_pages(
 ) -> Iterator[dict]:
     """Fetch all pages for a given search (ZIP+radius or specific locationId).
 
-    Deduplicates by VIN using `seen_vins` so callers can pass the same set
+    Deduplicates by VIN using seen_vins so callers can pass the same set
     across multiple search passes and avoid yielding the same vehicle twice.
 
     on_page(pages_done, pages_total, label) is called after each page if provided.
@@ -158,9 +181,9 @@ def _fetch_pages(
         seen_vins = set()
 
     phase_label = (
-        "Scraping Row52 — American Canyon (supplemental)…"
+        "Scraping Row52 - American Canyon (supplemental)..."
         if location_id
-        else "Scraping Row52…"
+        else "Scraping Row52..."
     )
     log_label = f"LocationId={location_id}" if location_id else f"ZIP={zip_code} r={distance}mi"
     first_url = _build_url(zip_code, distance, page=1, location_id=location_id)
@@ -204,7 +227,7 @@ def search(
     max_pages: int = 25,
     on_page: Callable[[int, int, str], None] | None = None,
 ) -> Iterator[dict]:
-    """Yield matching vehicles. Filters by target_makes (case-insensitive).
+    """Yield matching vehicles. Filters by target_makes, year >= 2005, added within 7 days.
 
     Row52 ZIP+radius search silently omits newer yards (e.g. American Canyon,
     locationId 10798). Pass their IDs via extra_location_ids (or set

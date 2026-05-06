@@ -62,7 +62,7 @@ def list_vehicles(
     limit: int = Query(500, ge=1, le=2000),
 ) -> list[dict[str, Any]]:
     cutoff_date = dt.date.today() - dt.timedelta(days=7)
-    min_year = 2010
+    min_year = 2004  # scraper enforces >= 2005; this catches any pre-filter DB rows
 
     with session_scope() as session:
         stmt = select(Vehicle)
