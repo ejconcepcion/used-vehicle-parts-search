@@ -20,7 +20,7 @@ DB_URL = f"sqlite:///{DB_PATH}"
 # --- Row52 search ----------------------------------------------------------
 
 ZIP_CODE = "94591"
-RADIUS_MILES = 50
+RADIUS_MILES = 100
 TARGET_MAKES = ["BMW", "Volkswagen"]   # post-filter, case-insensitive
 ROW52_PAGE_DELAY_SEC = 2.0             # be polite
 
