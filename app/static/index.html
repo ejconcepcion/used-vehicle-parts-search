@@ -70,12 +70,10 @@
         </select>
       </div>
       <div>
-        <label class="text-xs font-semibold text-slate-600 block mb-1">Min value</label>
-        <div class="relative">
-          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-          <input id="filter-min" type="number" min="0" step="50" value="0"
-            class="border rounded-lg pl-6 pr-2 py-2 text-sm w-24" />
-        </div>
+        <label class="text-xs font-semibold text-slate-600 block mb-1">Location</label>
+        <select id="filter-yard" class="border rounded-lg px-2.5 py-2 text-sm min-w-[160px]">
+          <option value="">All locations</option>
+        </select>
       </div>
       <div>
         <label class="text-xs font-semibold text-slate-600 block mb-1">Sort by</label>
@@ -214,12 +212,25 @@ async function loadStatus() {
   if (s.running) startProgressPolling();
 }
 
+async function loadYards() {
+  try {
+    const r = await fetch('/api/yards');
+    const yards = await r.json();
+    const sel = $('#filter-yard');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All locations</option>' +
+      yards.map(y => `<option value="${y.replace(/"/g, '&quot;')}">${y}</option>`).join('');
+    if (current && yards.includes(current)) sel.value = current;
+  } catch (e) { /* non-fatal */ }
+}
+
 async function loadVehicles() {
   const make = $('#filter-make').value;
-  const min  = parseFloat($('#filter-min').value || 0);
+  const yard = $('#filter-yard').value;
   const sort = $('#filter-sort').value;
-  const params = new URLSearchParams({ min_value: min, sort });
+  const params = new URLSearchParams({ sort });
   if (make) params.set('make', make);
+  if (yard) params.set('yard', yard);
   const r = await fetch('/api/vehicles?' + params.toString());
   const data = await r.json();
   $('#result-count').textContent = `${data.length} result${data.length !== 1 ? 's' : ''}`;
@@ -334,7 +345,7 @@ function startProgressPolling() {
     updateProgressUI(p);
     if (!p.running) {
       clearInterval(_progressPoll); _progressPoll = null;
-      loadStatus(); loadVehicles();
+      loadStatus(); loadYards(); loadVehicles();
     }
   }, 2000);
 }
@@ -358,13 +369,14 @@ async function clearCache() {
 }
 
 $('#btn-run').addEventListener('click', runNow);
-$('#btn-refresh').addEventListener('click', () => { loadStatus(); loadVehicles(); });
+$('#btn-refresh').addEventListener('click', () => { loadStatus(); loadYards(); loadVehicles(); });
 $('#btn-clear').addEventListener('click', clearCache);
-['filter-make', 'filter-min', 'filter-sort'].forEach(id => {
+['filter-make', 'filter-yard', 'filter-sort'].forEach(id => {
   $('#' + id).addEventListener('change', loadVehicles);
 });
 
 loadStatus();
+loadYards();
 loadVehicles();
 </script>
 </body>

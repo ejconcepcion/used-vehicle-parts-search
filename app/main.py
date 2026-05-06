@@ -43,6 +43,7 @@ app = FastAPI(title="Used Vehicle Parts Search", lifespan=lifespan)
 @app.get("/api/vehicles")
 def list_vehicles(
     make: str | None = Query(None),
+    yard: str | None = Query(None),
     min_value: float = Query(0),
     sort: str = Query("value", regex="^(value|year|added|make)$"),
     limit: int = Query(500, ge=1, le=2000),
@@ -51,6 +52,8 @@ def list_vehicles(
         stmt = select(Vehicle)
         if make:
             stmt = stmt.where(Vehicle.make.ilike(make))
+        if yard:
+            stmt = stmt.where(Vehicle.yard_name == yard)
         if min_value > 0:
             stmt = stmt.where(Vehicle.estimated_total_value >= min_value)
 
@@ -86,6 +89,19 @@ def list_vehicles(
             }
             for v in rows
         ]
+
+
+@app.get("/api/yards")
+def list_yards() -> list[str]:
+    """Distinct yard names present in the vehicle table, alphabetically sorted."""
+    with session_scope() as session:
+        stmt = (
+            select(Vehicle.yard_name)
+            .where(Vehicle.yard_name.is_not(None))
+            .distinct()
+            .order_by(Vehicle.yard_name.asc())
+        )
+        return [name for name in session.scalars(stmt).all() if name]
 
 
 @app.get("/api/vehicles/{vehicle_id}/parts")
