@@ -52,15 +52,18 @@ def _meta(item: Tag, prop: str) -> str | None:
 
 
 def _parse_total_pages(soup: BeautifulSoup) -> int:
-    """Return the total number of result pages, or 1 if unknown."""
+    """Return the total number of result pages, or 1 if unknown.
+
+    Row52 renders a pager that says "of <N>" where N is the total *page* count
+    (not the total result count). Earlier code mistakenly divided N by 30,
+    producing a page count roughly 30x too small.
+    """
     text = soup.get_text(" ", strip=True)
-    # Row52 prints "Page X of Y" in the pager.
+    # Row52 pager text: "... of 491 Vehicle Info ..."
     m = re.search(r"of\s+(\d+)", text)
     if not m:
         return 1
-    total_results = int(m.group(1))
-    # 30 results per page on Row52.
-    return max(1, (total_results + 29) // 30)
+    return max(1, int(m.group(1)))
 
 
 def _parse_vehicle(block: Tag) -> dict | None:
@@ -81,7 +84,9 @@ def _parse_vehicle(block: Tag) -> dict | None:
     image_url = img["src"] if img and img.get("src") else None
 
     # Detail link (already canonical: /Vehicle/Index/{VIN})
-    link = block.find("a", attrs={"itemprop": "url"})
+    # Match by href pattern to avoid picking up the yard's itemprop="url" link,
+    # which also lives inside this block.
+    link = block.find("a", href=re.compile(r"/Vehicle/Index/", re.I))
     detail_url = None
     if link and link.get("href"):
         href = link["href"]
@@ -97,7 +102,7 @@ def _parse_vehicle(block: Tag) -> dict | None:
         yard_name = name_tag.get_text(strip=True) if name_tag else None
         yard_address = addr_tag.get_text(strip=True) if addr_tag else None
 
-    # Row & date_added — these sit under <h4>Row</h4> and <h4>Added to yard</h4>
+    # Row & date_added
     row_number = None
     date_added = None
     for h4 in block.find_all("h4", class_="mobile-title"):
