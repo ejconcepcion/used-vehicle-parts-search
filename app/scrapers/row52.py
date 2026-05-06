@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.parse import urlencode
 
 import requests
@@ -145,23 +145,34 @@ def _fetch_pages(
     location_id: int = 0,
     max_pages: int = 25,
     seen_vins: set[str] | None = None,
+    on_page: Callable[[int, int, str], None] | None = None,
 ) -> Iterator[dict]:
     """Fetch all pages for a given search (ZIP+radius or specific locationId).
 
     Deduplicates by VIN using `seen_vins` so callers can pass the same set
     across multiple search passes and avoid yielding the same vehicle twice.
+
+    on_page(pages_done, pages_total, label) is called after each page if provided.
     """
     if seen_vins is None:
         seen_vins = set()
 
-    label = f"LocationId={location_id}" if location_id else f"ZIP={zip_code} r={distance}mi"
+    phase_label = (
+        "Scraping Row52 — American Canyon (supplemental)…"
+        if location_id
+        else "Scraping Row52…"
+    )
+    log_label = f"LocationId={location_id}" if location_id else f"ZIP={zip_code} r={distance}mi"
     first_url = _build_url(zip_code, distance, page=1, location_id=location_id)
-    log.info("[%s] Fetching %s", label, first_url)
+    log.info("[%s] Fetching %s", log_label, first_url)
     resp = session.get(first_url, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
     total_pages = min(_parse_total_pages(soup), max_pages)
-    log.info("[%s] Total pages: %d", label, total_pages)
+    log.info("[%s] Total pages: %d", log_label, total_pages)
+
+    if on_page:
+        on_page(1, total_pages, phase_label)
 
     for v in _yield_matches(soup, targets):
         if v["vin"] not in seen_vins:
@@ -171,12 +182,14 @@ def _fetch_pages(
     for page in range(2, total_pages + 1):
         time.sleep(config.ROW52_PAGE_DELAY_SEC)
         url = _build_url(zip_code, distance, page=page, location_id=location_id)
-        log.info("[%s] Fetching %s", label, url)
+        log.info("[%s] Fetching %s", log_label, url)
         resp = session.get(url, timeout=30)
         if not resp.ok:
-            log.warning("[%s] Page %d returned HTTP %d, stopping", label, page, resp.status_code)
+            log.warning("[%s] Page %d returned HTTP %d, stopping", log_label, page, resp.status_code)
             break
         soup = BeautifulSoup(resp.text, "lxml")
+        if on_page:
+            on_page(page, total_pages, phase_label)
         for v in _yield_matches(soup, targets):
             if v["vin"] not in seen_vins:
                 seen_vins.add(v["vin"])
@@ -189,6 +202,7 @@ def search(
     target_makes: list[str] | None = None,
     extra_location_ids: list[int] | None = None,
     max_pages: int = 25,
+    on_page: Callable[[int, int, str], None] | None = None,
 ) -> Iterator[dict]:
     """Yield matching vehicles. Filters by target_makes (case-insensitive).
 
@@ -196,6 +210,8 @@ def search(
     locationId 10798). Pass their IDs via extra_location_ids (or set
     EXTRA_LOCATION_IDS in config) to fetch them in a second pass.
     Duplicates across passes are suppressed by VIN.
+
+    on_page(pages_done, pages_total, label) is called after each page if provided.
     """
     targets = {m.upper() for m in (target_makes or config.TARGET_MAKES)}
     extra_ids = (
@@ -208,13 +224,17 @@ def search(
     seen_vins: set[str] = set()
 
     # Primary: all yards within ZIP+radius
-    yield from _fetch_pages(sess, targets, zip_code, distance,
-                            location_id=0, max_pages=max_pages,
-                            seen_vins=seen_vins)
+    yield from _fetch_pages(
+        sess, targets, zip_code, distance,
+        location_id=0, max_pages=max_pages,
+        seen_vins=seen_vins, on_page=on_page,
+    )
 
     # Supplemental: yards Row52 geo-search misses (e.g. American Canyon)
     for loc_id in extra_ids:
         log.info("Supplemental search for locationId=%d", loc_id)
-        yield from _fetch_pages(sess, targets, zip_code, distance,
-                                location_id=loc_id, max_pages=max_pages,
-                                seen_vins=seen_vins)
+        yield from _fetch_pages(
+            sess, targets, zip_code, distance,
+            location_id=loc_id, max_pages=max_pages,
+            seen_vins=seen_vins, on_page=on_page,
+        )

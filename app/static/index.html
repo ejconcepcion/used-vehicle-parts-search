@@ -46,14 +46,25 @@
     </div>
   </header>
 
-  <!-- Progress banner (shown only while Row52 scrape is running) -->
+  <!-- Progress banner (shown only while a run is active) -->
   <div id="progress-banner" class="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-4">
-    <div class="flex items-center justify-between mb-2">
-      <span class="text-sm font-semibold text-blue-700">Scraping Row52…</span>
+    <!-- Step pills -->
+    <div class="flex items-center gap-2 mb-3 text-xs font-semibold">
+      <span id="step-scrape" class="px-2.5 py-1 rounded-full border">1 · Scraping Row52</span>
+      <span class="text-slate-300">›</span>
+      <span id="step-price" class="px-2.5 py-1 rounded-full border">2 · Pricing vehicles</span>
     </div>
+    <!-- Label + counts -->
+    <div class="flex items-center justify-between mb-1.5">
+      <span id="progress-label" class="text-sm font-medium text-blue-700">Starting…</span>
+      <span id="progress-counts" class="text-xs text-slate-400 tabular-nums"></span>
+    </div>
+    <!-- Bar -->
     <div class="progress-track">
       <div id="progress-fill" class="progress-fill indeterminate"></div>
     </div>
+    <!-- Current vehicle (pricing phase only) -->
+    <div id="progress-vehicle" class="text-xs text-slate-400 mt-1.5 truncate" style="display:none"></div>
   </div>
 
   <!-- Filters -->
@@ -322,6 +333,47 @@ function updateProgressUI(p) {
   const banner = $('#progress-banner');
   if (!p.running) { banner.classList.remove('visible'); return; }
   banner.classList.add('visible');
+
+  const isScraping = p.phase === 'scraping';
+  const isPricing  = p.phase === 'pricing';
+
+  // Step pills — active = blue filled, inactive = grey outline
+  const activeStyle   = 'background:#dbeafe;color:#1e40af;border-color:#93c5fd';
+  const inactiveStyle = 'background:#f8fafc;color:#94a3b8;border-color:#e2e8f0';
+  $('#step-scrape').style.cssText = isScraping ? activeStyle : inactiveStyle;
+  $('#step-price').style.cssText  = isPricing  ? activeStyle : inactiveStyle;
+
+  // Label
+  $('#progress-label').textContent = p.phase_label || 'Running…';
+
+  // Page / vehicle counts
+  if (isScraping && p.scrape_pages_total > 0) {
+    $('#progress-counts').textContent = `page ${p.scrape_pages_done} of ${p.scrape_pages_total}`;
+  } else if (isPricing && p.pricing_total > 0) {
+    $('#progress-counts').textContent = `${p.pricing_done} of ${p.pricing_total} vehicles`;
+  } else {
+    $('#progress-counts').textContent = '';
+  }
+
+  // Progress bar — determinate for pricing, indeterminate for scraping
+  const fill = $('#progress-fill');
+  if (isPricing && p.pricing_total > 0) {
+    const pct = Math.round((p.pricing_done / p.pricing_total) * 100);
+    fill.classList.remove('indeterminate');
+    fill.style.width = pct + '%';
+  } else {
+    fill.classList.add('indeterminate');
+    fill.style.width = '';
+  }
+
+  // Current vehicle label
+  const veh = $('#progress-vehicle');
+  if (isPricing && p.current_vehicle) {
+    veh.textContent = p.current_vehicle;
+    veh.style.display = 'block';
+  } else {
+    veh.style.display = 'none';
+  }
 }
 
 let _progressPoll = null;

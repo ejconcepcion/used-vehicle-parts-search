@@ -87,22 +87,6 @@ def _upsert_vehicle(session, v: dict) -> Vehicle:
     return veh
 
 
-def _resolve_part_estimate(session, vehicle: Vehicle, part: CatalogPart) -> tuple[float | None, int, str]:
-    query = part.query_template.format(year=vehicle.year or "", model=vehicle.model or "").strip()
-    query = " ".join(query.split())  # normalize whitespace
-
-    cached = _cached_median(session, query)
-    if cached is not None:
-        median, n = cached
-        return median, n, query
-
-    # Live fetch (rate-limited)
-    median, n, raw = ebay.fetch_sold_median(query)
-    _store_cache(session, query, median, n, raw)
-    time.sleep(config.EBAY_QUERY_DELAY_SEC)
-    return median, n, query
-
-
 def _record_part(session, vehicle: Vehicle, part: CatalogPart, median: float | None, n: int, query: str) -> None:
     pe = session.scalar(
         select(PartEstimate).where(
@@ -137,11 +121,14 @@ def run_pipeline() -> dict:
             run_id = run.id
 
         # Collect all matching vehicles first so we know the total upfront.
-        vehicles_raw = list(row52.search())
+        # on_page callback feeds live page counts into the progress tracker.
+        vehicles_raw = list(row52.search(on_page=progress.scrape_page))
         seen = len(vehicles_raw)
 
-        for v in vehicles_raw:
-            # ── Step 1: short read/write session — upsert vehicle, check cache ──
+        progress.start_pricing(seen)
+
+        for idx, v in enumerate(vehicles_raw):
+            # Step 1: short read/write session -- upsert vehicle, check cache.
             # We close the session before making slow eBay network calls so that
             # the SQLite write lock is not held for minutes at a time (which would
             # block the web API endpoints with a "database is locked" error).
@@ -151,16 +138,19 @@ def run_pipeline() -> dict:
                 applicable = applicable[: config.PARTS_PER_VEHICLE_LIMIT]
                 if not applicable:
                     matched += 1
+                    progress.vehicle_pricing(
+                        idx + 1, seen,
+                        "{} {} {}".format(vehicle.year, vehicle.make or "", vehicle.model or ""),
+                    )
                     continue
 
-                # Resolve what we can from cache (no network I/O, fast).
-                vehicle_id   = vehicle.id
-                vehicle_year = vehicle.year
-                vehicle_make = vehicle.make or ""
+                vehicle_id    = vehicle.id
+                vehicle_year  = vehicle.year
+                vehicle_make  = vehicle.make or ""
                 vehicle_model = vehicle.model or ""
                 label = "{} {} {}".format(vehicle_year, vehicle_make, vehicle_model)
 
-                cached_results: list[tuple] = []   # (part, median, n, query)
+                cached_results: list[tuple] = []
                 parts_needing_fetch: list[CatalogPart] = []
                 for part in applicable:
                     query = part.query_template.format(
@@ -174,8 +164,8 @@ def run_pipeline() -> dict:
                     else:
                         parts_needing_fetch.append(part)
 
-            # ── Step 2: slow eBay fetches — NO session open ──────────────────
-            fetched_results: list[tuple] = []      # (part, median, n, query)
+            # Step 2: slow eBay fetches -- NO session open.
+            fetched_results: list[tuple] = []
             for part in parts_needing_fetch:
                 query = part.query_template.format(
                     year=vehicle_year or "", model=vehicle_model
@@ -185,14 +175,12 @@ def run_pipeline() -> dict:
                 fetched_results.append((part, median, n, query, raw))
                 time.sleep(config.EBAY_QUERY_DELAY_SEC)
 
-            # ── Step 3: short write session — persist results ─────────────────
+            # Step 3: short write session -- persist results.
             with session_scope() as session:
-                # Re-fetch vehicle by id (the earlier session is closed).
                 vehicle = session.get(Vehicle, vehicle_id)
                 if vehicle is None:
-                    continue  # shouldn't happen, but be safe
+                    continue
 
-                # Persist newly fetched eBay results to cache.
                 for part, median, n, query, raw in fetched_results:
                     _store_cache(session, query, median, n, raw)
 
@@ -214,6 +202,7 @@ def run_pipeline() -> dict:
                 vehicle.gross_total_value     = gross_total
                 vehicle.estimated_total_value = net_total
                 matched += 1
+                progress.vehicle_pricing(idx + 1, seen, label)
                 log.info(
                     "Vehicle %s -> gross $%.0f / net $%.0f (%d parts, %d fetched)",
                     label, gross_total, net_total, len(all_results), len(fetched_results),
