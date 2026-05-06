@@ -139,7 +139,6 @@ def run_pipeline() -> dict:
         # Collect all matching vehicles first so we know the total upfront.
         vehicles_raw = list(row52.search())
         seen = len(vehicles_raw)
-        progress.set_pricing(seen)
 
         for v in vehicles_raw:
             # ── Step 1: short read/write session — upsert vehicle, check cache ──
@@ -152,10 +151,6 @@ def run_pipeline() -> dict:
                 applicable = applicable[: config.PARTS_PER_VEHICLE_LIMIT]
                 if not applicable:
                     matched += 1
-                    progress.vehicle_done(
-                        "{} {} {}".format(vehicle.year, vehicle.make, vehicle.model),
-                        parts_queried,
-                    )
                     continue
 
                 # Resolve what we can from cache (no network I/O, fast).
@@ -223,8 +218,6 @@ def run_pipeline() -> dict:
                     "Vehicle %s -> gross $%.0f / net $%.0f (%d parts, %d fetched)",
                     label, gross_total, net_total, len(all_results), len(fetched_results),
                 )
-
-                progress.vehicle_done(label, parts_queried)
 
     except Exception:
         error = traceback.format_exc()
