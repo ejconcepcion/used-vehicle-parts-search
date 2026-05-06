@@ -93,9 +93,10 @@ class TopSoldPart(Base):
     id = Column(Integer, primary_key=True)
     vehicle_id = Column(Integer, ForeignKey("vehicle.id"), nullable=False, index=True)
     title = Column(String, nullable=False)
-    price_usd = Column(Float, nullable=True)
+    price_usd = Column(Float, nullable=True)      # avg price if multiple listings grouped
     url = Column(String, nullable=True)
     sold_date_str = Column(String, nullable=True)
+    sample_count = Column(Integer, default=1)      # how many listings were averaged
     queried_at = Column(DateTime, default=datetime.utcnow)
 
     vehicle = relationship("Vehicle", back_populates="top_sold_parts")

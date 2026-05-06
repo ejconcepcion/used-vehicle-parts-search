@@ -47,6 +47,10 @@ def _migrate_db() -> None:
         if "gross_total_value" not in veh_cols:
             conn.execute(text("ALTER TABLE vehicle ADD COLUMN gross_total_value FLOAT"))
 
+        tsp_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(top_sold_part)"))}
+        if "sample_count" not in tsp_cols:
+            conn.execute(text("ALTER TABLE top_sold_part ADD COLUMN sample_count INTEGER DEFAULT 1"))
+
         conn.commit()
 
 

@@ -124,6 +124,7 @@ def vehicle_top_parts(vehicle_id: int) -> list[dict[str, Any]]:
                 "price_usd": p.price_usd,
                 "url": p.url,
                 "sold_date_str": p.sold_date_str,
+                "sample_count": p.sample_count or 1,
                 "queried_at": p.queried_at.isoformat() if p.queried_at else None,
             }
             for p in sorted(
@@ -232,6 +233,7 @@ class TopSoldItem(BaseModel):
     price_usd: float
     url: str = ""
     sold_date_str: str = ""
+    sample_count: int = 1
 
 
 class TopSoldBatchEntry(BaseModel):
@@ -259,6 +261,7 @@ def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
                     price_usd=item.price_usd,
                     url=item.url,
                     sold_date_str=item.sold_date_str,
+                    sample_count=item.sample_count,
                     queried_at=now,
                 ))
             total_stored += len(entry.items)

@@ -22,6 +22,7 @@ import re
 import statistics
 import sys
 import time
+from collections import defaultdict
 from urllib.parse import quote_plus
 
 import requests as _requests
@@ -43,6 +44,7 @@ log = logging.getLogger(__name__)
 PRICE_RE = re.compile(r"\$([\d,]+(?:\.\d{1,2})?)")
 DELAY_SEC = 2.0    # pause between eBay requests
 BATCH_SIZE = 50    # how many results to POST at once
+TOP_N = 30         # target unique parts to return per vehicle
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +77,7 @@ def close_browser():
 
 
 def _get_html(url: str) -> str | None:
-    """Navigate to url with Chrome, wait for s-item listings, return page source."""
+    """Navigate to url with Chrome, wait for listings, return page source."""
     try:
         driver = _get_driver()
         driver.get(url)
@@ -132,70 +134,135 @@ def fetch_price(query: str) -> tuple[float | None, int, list[float]]:
 
 
 # ---------------------------------------------------------------------------
-# Top-sold parts search (by vehicle year/make/model)
+# Top-sold parts search — deduplication and averaging
 # ---------------------------------------------------------------------------
 
-def fetch_top_sold(year, make: str, model: str, n: int = 20) -> list[dict]:
-    """Search eBay sold listings for a vehicle and return top n by price."""
-    query = f"{year} {make} {model}"
-    url = (
-        "https://www.ebay.com/sch/i.html"
-        f"?_nkw={quote_plus(query)}"
-        "&_sacat=33637"   # Car & Truck Parts & Accessories
-        "&LH_Sold=1&LH_Complete=1"
-        "&_sop=16"        # price highest first
-        "&_ipg=60"
-    )
-    html = _get_html(url)
-    if not html:
-        return []
+# Noise words to strip before grouping duplicate titles.
+_NOISE_RE = re.compile(
+    r"\b(?:oem|genuine|original|factory|aftermarket|fits?|for|new|used|"
+    r"tested|good|working|excellent|clean|nice|rare|assy|assembly|complete|"
+    r"set|pair|kit|unit|module|w/|w|with|without|&|and|the|a|an|no|"
+    r"lh|rh|fl|fr|rl|rr|left|right|front|rear|upper|lower|inner|outer|"
+    r"driver|passenger|side|oem#|p/n|pn|part|parts|number|#)\b",
+    re.IGNORECASE,
+)
 
-    soup = BeautifulSoup(html, "lxml")
-    results: list[dict] = []
 
-    for item in soup.select("li.s-item"):
-        title_tag = item.select_one(".s-item__title")
-        if not title_tag:
-            continue
-        title = title_tag.get_text(strip=True)
-        if "shop on ebay" in title.lower():
-            continue
+def _part_key(title: str, year, make: str, model: str) -> str:
+    """Normalize a listing title down to a short deduplication key."""
+    t = title.lower()
 
-        price_tag = item.select_one(".s-item__price")
-        if not price_tag:
-            continue
-        nums = [
-            float(m.group(1).replace(",", ""))
-            for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))
-        ]
-        if not nums:
-            continue
-        price = sum(nums) / len(nums) if len(nums) > 1 else nums[0]
+    # Remove year, make, model words
+    for word in [str(year)] + make.lower().split() + model.lower().split():
+        t = re.sub(r"\b" + re.escape(word) + r"\b", " ", t)
 
-        link_tag = item.select_one("a.s-item__link")
-        item_url = ""
-        if link_tag and link_tag.get("href"):
-            item_url = link_tag["href"].split("?")[0]
+    # Remove noise words and non-alpha characters
+    t = _NOISE_RE.sub(" ", t)
+    t = re.sub(r"[^a-z0-9\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
 
-        sold_date = ""
-        for sel in (".s-item__caption--signal", ".s-item__endedDate", ".POSITIVE"):
-            date_tag = item.select_one(sel)
-            if date_tag:
-                sold_date = date_tag.get_text(strip=True)
-                break
+    # Use the first 3 meaningful tokens as the key
+    tokens = t.split()[:3]
+    return " ".join(tokens) if tokens else title[:20].lower()
 
-        results.append({
-            "title": title,
-            "price_usd": price,
-            "url": item_url,
-            "sold_date_str": sold_date,
+
+def _deduplicate(raw: list[dict], year, make: str, model: str) -> list[dict]:
+    """Group listings by normalized part key, average prices within each group.
+
+    Returns a list sorted by avg price descending, with sample_count added.
+    """
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for item in raw:
+        key = _part_key(item["title"], year, make, model)
+        groups[key].append(item)
+
+    deduped: list[dict] = []
+    for key, group in groups.items():
+        avg_price = sum(i["price_usd"] for i in group) / len(group)
+        # Pick the representative listing with the highest individual price
+        rep = max(group, key=lambda x: x["price_usd"])
+        deduped.append({
+            "title": rep["title"],
+            "price_usd": round(avg_price, 2),
+            "url": rep["url"],
+            "sold_date_str": rep["sold_date_str"],
+            "sample_count": len(group),
         })
 
-        if len(results) >= n * 2:
+    deduped.sort(key=lambda x: x["price_usd"], reverse=True)
+    return deduped
+
+
+def fetch_top_sold(year, make: str, model: str, n: int = TOP_N) -> list[dict]:
+    """Search eBay sold listings for a vehicle, deduplicate, and return top n by avg price."""
+    query = f"{year} {make} {model}"
+    # Fetch extra results so we still have n unique parts after deduplication
+    fetch_count = min(n * 4, 240)
+    pages_needed = -(-fetch_count // 60)  # ceiling division
+
+    raw: list[dict] = []
+    for page in range(1, pages_needed + 1):
+        url = (
+            "https://www.ebay.com/sch/i.html"
+            f"?_nkw={quote_plus(query)}"
+            "&_sacat=33637"      # Car & Truck Parts & Accessories
+            "&LH_Sold=1&LH_Complete=1"
+            "&_sop=16"           # price highest first
+            f"&_ipg=60&_pgn={page}"
+        )
+        html = _get_html(url)
+        if not html:
             break
 
-    results.sort(key=lambda x: x["price_usd"], reverse=True)
-    return results[:n]
+        soup = BeautifulSoup(html, "lxml")
+        page_results = 0
+        for item in soup.select("li.s-item"):
+            title_tag = item.select_one(".s-item__title")
+            if not title_tag:
+                continue
+            title = title_tag.get_text(strip=True)
+            if "shop on ebay" in title.lower():
+                continue
+
+            price_tag = item.select_one(".s-item__price")
+            if not price_tag:
+                continue
+            nums = [
+                float(m.group(1).replace(",", ""))
+                for m in PRICE_RE.finditer(price_tag.get_text(" ", strip=True))
+            ]
+            if not nums:
+                continue
+            price = sum(nums) / len(nums) if len(nums) > 1 else nums[0]
+
+            link_tag = item.select_one("a.s-item__link")
+            item_url = ""
+            if link_tag and link_tag.get("href"):
+                item_url = link_tag["href"].split("?")[0]
+
+            sold_date = ""
+            for sel in (".s-item__caption--signal", ".s-item__endedDate", ".POSITIVE"):
+                date_tag = item.select_one(sel)
+                if date_tag:
+                    sold_date = date_tag.get_text(strip=True)
+                    break
+
+            raw.append({
+                "title": title,
+                "price_usd": price,
+                "url": item_url,
+                "sold_date_str": sold_date,
+            })
+            page_results += 1
+
+        log.debug("  Page %d: %d items (total raw: %d)", page, page_results, len(raw))
+        if page_results < 10:
+            break  # last page reached
+        if page < pages_needed:
+            time.sleep(1)
+
+    deduped = _deduplicate(raw, year, make, model)
+    return deduped[:n]
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +322,7 @@ def main() -> None:
             results: list[dict] = []
             for i, query in enumerate(queries, 1):
                 log.info("[%d/%d] %s", i, total, query)
-                median, n, raw = fetch_price(query)
+                median, n, raw_prices = fetch_price(query)
                 if median is not None:
                     log.info("        -> $%.0f  (n=%d)", median, n)
                 else:
@@ -264,7 +331,7 @@ def main() -> None:
                     "query": query,
                     "median_price_usd": median,
                     "sample_size": n,
-                    "raw_prices": raw,
+                    "raw_prices": raw_prices,
                 })
                 if i < total:
                     time.sleep(DELAY_SEC)
@@ -284,8 +351,8 @@ def main() -> None:
                         sys.exit(1)
                 log.info("Curated parts done. %d prices uploaded.", total_stored)
             else:
-                for r in results:
-                    print(f"  {r['query']}: ${r['median_price_usd']}")
+                for item in results:
+                    print(f"  {item['query']}: ${item['median_price_usd']}")
 
     # -----------------------------------------------------------------------
     # 2. Top-sold search (per vehicle)
@@ -311,8 +378,16 @@ def main() -> None:
                 label = f"{v['year']} {v['make']} {v['model']}"
                 log.info("[%d/%d] Top-sold: %s", i, total_v, label)
                 items = fetch_top_sold(v["year"], v["make"], v["model"])
-                log.info("        -> %d items, top price $%.0f",
-                         len(items), items[0]["price_usd"] if items else 0)
+                if items:
+                    log.info(
+                        "        -> %d unique parts, top: %s ($%.0f, avg of %d)",
+                        len(items),
+                        items[0]["title"][:50],
+                        items[0]["price_usd"],
+                        items[0]["sample_count"],
+                    )
+                else:
+                    log.info("        -> no results")
                 top_sold_batch.append({
                     "vehicle_id": v["vehicle_id"],
                     "items": items,
