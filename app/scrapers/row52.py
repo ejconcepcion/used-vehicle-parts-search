@@ -128,6 +128,15 @@ def _parse_vehicle(block: Tag) -> dict | None:
     }
 
 
+def _yield_matches(soup: BeautifulSoup, targets: set[str]) -> Iterator[dict]:
+    for block in soup.find_all(attrs={"itemtype": "http://schema.org/Thing/Automobile"}):
+        v = _parse_vehicle(block)
+        if not v:
+            continue
+        if v["make"] and v["make"].upper() in targets:
+            yield v
+
+
 def _fetch_pages(
     session: requests.Session,
     targets: set[str],
@@ -181,35 +190,31 @@ def search(
     extra_location_ids: list[int] | None = None,
     max_pages: int = 25,
 ) -> Iterator[dict]:
-    """Yield matching vehicles. Filters by `target_makes` (case-insensitive).
+    """Yield matching vehicles. Filters by target_makes (case-insensitive).
 
-    Row52's ZIP+radius search silently omits some newer yards (e.g. American
-    Canyon, locationId 10798). Pass their IDs via `extra_location_ids` (or set
-    EXTRA_LOCATION_IDS in config) to fetch them in a dedicated second pass.
+    Row52 ZIP+radius search silently omits newer yards (e.g. American Canyon,
+    locationId 10798). Pass their IDs via extra_location_ids (or set
+    EXTRA_LOCATION_IDS in config) to fetch them in a second pass.
     Duplicates across passes are suppressed by VIN.
     """
     targets = {m.upper() for m in (target_makes or config.TARGET_MAKES)}
-    extra_ids = extra_location_ids if extra_location_ids is not None else config.EXTRA_LOCATION_IDS
-    session = requests.Session()
-    session.headers["User-Agent"] = config.USER_AGENT
-
+    extra_ids = (
+        extra_location_ids
+        if extra_location_ids is not None
+        else config.EXTRA_LOCATION_IDS
+    )
+    sess = requests.Session()
+    sess.headers["User-Agent"] = config.USER_AGENT
     seen_vins: set[str] = set()
 
-    # Primary search: all yards within ZIP+radius.
-    yield from _fetch_pages(session, targets, zip_code, distance,
-                            location_id=0, max_pages=max_pages, seen_vins=seen_vins)
+    # Primary: all yards within ZIP+radius
+    yield from _fetch_pages(sess, targets, zip_code, distance,
+                            location_id=0, max_pages=max_pages,
+                            seen_vins=seen_vins)
 
-    # Supplemental passes for yards Row52 geo-search misses.
+    # Supplemental: yards Row52 geo-search misses (e.g. American Canyon)
     for loc_id in extra_ids:
-        log.info("Starting supplemental search for locationId=%d", loc_id)
-        yield from _fetch_pages(session, targets, zip_code, distance,
-                                location_id=loc_id, max_pages=max_pages, seen_vins=seen_vins)
-
-
-def _yield_matches(soup: BeautifulSoup, targets: set[str]) -> Iterator[dict]:
-    for block in soup.find_all(attrs={"itemtype": "http://schema.org/Thing/Automobile"}):
-        v = _parse_vehicle(block)
-        if not v:
-            continue
-        if v["make"] and v["make"].upper() in targets:
-            yield v
+        log.info("Supplemental search for locationId=%d", loc_id)
+        yield from _fetch_pages(sess, targets, zip_code, distance,
+                                location_id=loc_id, max_pages=max_pages,
+                                seen_vins=seen_vins)
