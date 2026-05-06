@@ -24,6 +24,12 @@ RADIUS_MILES = 100
 TARGET_MAKES = ["BMW", "Volkswagen"]   # post-filter, case-insensitive
 ROW52_PAGE_DELAY_SEC = 2.0             # be polite
 
+# Yards that Row52's ZIP+radius search misses due to a site bug (newly added
+# locations with high locationIds aren't indexed in their geo search).
+# Each entry is searched directly by locationId and merged/deduplicated by VIN.
+# 10798 = PICK-n-PULL American Canyon (5 mi from 94591, closest yard)
+EXTRA_LOCATION_IDS: list[int] = [10798]
+
 # --- eBay ------------------------------------------------------------------
 
 EBAY_USE_API = os.getenv("EBAY_USE_API", "0") == "1"

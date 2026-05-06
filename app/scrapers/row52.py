@@ -25,7 +25,7 @@ SEARCH_URL = "https://row52.com/Search"
 ROW52_HOME = "https://row52.com"
 
 
-def _build_url(zip_code: str, distance: int, page: int = 1) -> str:
+def _build_url(zip_code: str, distance: int, page: int = 1, location_id: int = 0) -> str:
     qs = urlencode(
         {
             "Page": page,
@@ -38,7 +38,7 @@ def _build_url(zip_code: str, distance: int, page: int = 1) -> str:
             "Sort": "DateAdded",
             "HasImage": "",
             "HasComment": "",
-            "LocationId": 0,
+            "LocationId": location_id,
             "YMMorVIN": "YMM",
             "IsVin": "false",
         }
@@ -128,39 +128,82 @@ def _parse_vehicle(block: Tag) -> dict | None:
     }
 
 
-def search(
-    zip_code: str = config.ZIP_CODE,
-    distance: int = config.RADIUS_MILES,
-    target_makes: list[str] | None = None,
+def _fetch_pages(
+    session: requests.Session,
+    targets: set[str],
+    zip_code: str,
+    distance: int,
+    location_id: int = 0,
     max_pages: int = 25,
+    seen_vins: set[str] | None = None,
 ) -> Iterator[dict]:
-    """Yield matching vehicles. Filters by `target_makes` (case-insensitive)."""
+    """Fetch all pages for a given search (ZIP+radius or specific locationId).
 
-    targets = {m.upper() for m in (target_makes or config.TARGET_MAKES)}
-    session = requests.Session()
-    session.headers["User-Agent"] = config.USER_AGENT
+    Deduplicates by VIN using `seen_vins` so callers can pass the same set
+    across multiple search passes and avoid yielding the same vehicle twice.
+    """
+    if seen_vins is None:
+        seen_vins = set()
 
-    # First page tells us how many pages to fetch.
-    first_url = _build_url(zip_code, distance, page=1)
-    log.info("Fetching %s", first_url)
+    label = f"LocationId={location_id}" if location_id else f"ZIP={zip_code} r={distance}mi"
+    first_url = _build_url(zip_code, distance, page=1, location_id=location_id)
+    log.info("[%s] Fetching %s", label, first_url)
     resp = session.get(first_url, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
     total_pages = min(_parse_total_pages(soup), max_pages)
-    log.info("Total pages: %d", total_pages)
+    log.info("[%s] Total pages: %d", label, total_pages)
 
-    yield from _yield_matches(soup, targets)
+    for v in _yield_matches(soup, targets):
+        if v["vin"] not in seen_vins:
+            seen_vins.add(v["vin"])
+            yield v
 
     for page in range(2, total_pages + 1):
         time.sleep(config.ROW52_PAGE_DELAY_SEC)
-        url = _build_url(zip_code, distance, page=page)
-        log.info("Fetching %s", url)
+        url = _build_url(zip_code, distance, page=page, location_id=location_id)
+        log.info("[%s] Fetching %s", label, url)
         resp = session.get(url, timeout=30)
         if not resp.ok:
-            log.warning("Page %d returned HTTP %d, stopping", page, resp.status_code)
+            log.warning("[%s] Page %d returned HTTP %d, stopping", label, page, resp.status_code)
             break
         soup = BeautifulSoup(resp.text, "lxml")
-        yield from _yield_matches(soup, targets)
+        for v in _yield_matches(soup, targets):
+            if v["vin"] not in seen_vins:
+                seen_vins.add(v["vin"])
+                yield v
+
+
+def search(
+    zip_code: str = config.ZIP_CODE,
+    distance: int = config.RADIUS_MILES,
+    target_makes: list[str] | None = None,
+    extra_location_ids: list[int] | None = None,
+    max_pages: int = 25,
+) -> Iterator[dict]:
+    """Yield matching vehicles. Filters by `target_makes` (case-insensitive).
+
+    Row52's ZIP+radius search silently omits some newer yards (e.g. American
+    Canyon, locationId 10798). Pass their IDs via `extra_location_ids` (or set
+    EXTRA_LOCATION_IDS in config) to fetch them in a dedicated second pass.
+    Duplicates across passes are suppressed by VIN.
+    """
+    targets = {m.upper() for m in (target_makes or config.TARGET_MAKES)}
+    extra_ids = extra_location_ids if extra_location_ids is not None else config.EXTRA_LOCATION_IDS
+    session = requests.Session()
+    session.headers["User-Agent"] = config.USER_AGENT
+
+    seen_vins: set[str] = set()
+
+    # Primary search: all yards within ZIP+radius.
+    yield from _fetch_pages(session, targets, zip_code, distance,
+                            location_id=0, max_pages=max_pages, seen_vins=seen_vins)
+
+    # Supplemental passes for yards Row52 geo-search misses.
+    for loc_id in extra_ids:
+        log.info("Starting supplemental search for locationId=%d", loc_id)
+        yield from _fetch_pages(session, targets, zip_code, distance,
+                                location_id=loc_id, max_pages=max_pages, seen_vins=seen_vins)
 
 
 def _yield_matches(soup: BeautifulSoup, targets: set[str]) -> Iterator[dict]:
