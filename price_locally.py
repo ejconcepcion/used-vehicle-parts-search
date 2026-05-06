@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from urllib.parse import quote_plus, urlencode
@@ -547,7 +548,6 @@ def main() -> None:
     # Save the outgoing batch so we can inspect / replay if upload fails.
     # Write to a temp file first then replace, so the file is never half-written
     # and is always valid JSON (avoids null-byte corruption from in-place overwrites).
-    import tempfile, os
     tmp_path = "last_batch.json.tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(batch, f, indent=2, ensure_ascii=False)
