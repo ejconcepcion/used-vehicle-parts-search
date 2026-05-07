@@ -109,6 +109,10 @@
           <input type="checkbox" id="ex-body" class="rounded" />
           Body panels (hood, fender, bumper)
         </label>
+        <label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+          <input type="checkbox" id="ex-headlight" class="rounded" />
+          Headlights
+        </label>
       </div>
     </div>
   </section>
@@ -130,11 +134,12 @@ const fmt = (n) => n == null ? '—' : '$' + Math.round(n).toLocaleString();
 // Exclude filter
 // ---------------------------------------------------------------------------
 const EXCLUDE_MAP = {
-  'ex-engine': ['engine', 'motor', 'long block', 'short block', 'bare block'],
-  'ex-trans':  ['transmission', 'transaxle', 'gearbox'],
-  'ex-door':   ['door'],
-  'ex-body':   ['hood', 'fender', 'bumper', 'quarter panel', 'trunk lid',
-                 'liftgate', 'tailgate', 'hatchback'],
+  'ex-engine':    ['engine', 'motor', 'long block', 'short block', 'bare block'],
+  'ex-trans':     ['transmission', 'transaxle', 'gearbox'],
+  'ex-door':      ['door'],
+  'ex-body':      ['hood', 'fender', 'bumper', 'quarter panel', 'trunk lid',
+                   'liftgate', 'tailgate', 'hatchback'],
+  'ex-headlight': ['headlight', 'headlamp'],
 };
 
 function getExcludeKeywords() {
@@ -221,7 +226,7 @@ function reRenderAll() {
   }
 }
 
-['ex-engine', 'ex-trans', 'ex-door', 'ex-body'].forEach(id => {
+['ex-engine', 'ex-trans', 'ex-door', 'ex-body', 'ex-headlight'].forEach(id => {
   $('#' + id).addEventListener('change', reRenderAll);
 });
 
