@@ -340,7 +340,7 @@ async function loadVehicles() {
       _topPartsData[v.id] = deduplicateParts(rawParts, v.year, v.make, v.model);
       const listEl = document.createElement('div');
       _topPartsLists[v.id] = listEl;
-      renderTopParts(listEl, parts);
+      renderTopParts(listEl, _topPartsData[v.id]);
 
       const header = document.createElement('div');
       header.className = 'flex flex-wrap items-baseline justify-between gap-1 mb-2';
