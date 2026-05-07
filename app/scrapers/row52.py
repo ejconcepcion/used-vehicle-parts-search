@@ -27,7 +27,7 @@ ROW52_HOME = "https://row52.com"
 
 # Vehicles outside these bounds are skipped at scrape time.
 _MIN_YEAR = 2005
-_MAX_YARD_AGE_DAYS = 7
+_MAX_YARD_AGE_DAYS = 14
 
 
 def _build_url(zip_code: str, distance: int, page: int = 1, location_id: int = 0) -> str:
