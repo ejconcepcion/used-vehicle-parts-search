@@ -76,6 +76,11 @@ def list_vehicles(
         # Year filter (SQL)
         stmt = stmt.where(Vehicle.year > min_year)
 
+        # Pre-filter by first_seen_at so the LIMIT doesn't cut off recent vehicles
+        # before the Python date filter runs. 2-day buffer covers clock skew.
+        sql_cutoff = dt.datetime.utcnow() - dt.timedelta(days=16)
+        stmt = stmt.where(Vehicle.first_seen_at >= sql_cutoff)
+
         if sort == "value":
             stmt = stmt.order_by(desc(Vehicle.estimated_total_value))
         elif sort == "year":
@@ -88,7 +93,7 @@ def list_vehicles(
         stmt = stmt.limit(limit)
         rows = session.scalars(stmt).all()
 
-        # Date filter -- done in Python since date_added_to_yard is a string.
+        # Precise date filter on date_added_to_yard (string field from Row52).
         # Vehicles with missing/unparseable dates are included (fail open).
         rows = [
             v for v in rows
