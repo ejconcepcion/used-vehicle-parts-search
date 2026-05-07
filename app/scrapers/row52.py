@@ -150,8 +150,8 @@ def _yield_matches(soup: BeautifulSoup, targets: set[str]) -> Iterator[dict]:
         # Make filter
         if not (v["make"] and v["make"].upper() in targets):
             continue
-        # Year filter (skip if year known and too old)
-        if v["year"] is not None and v["year"] < _MIN_YEAR:
+        # Year filter (skip if year unknown or too old)
+        if v["year"] is None or v["year"] < _MIN_YEAR:
             continue
         # Date filter (skip if date known and too old; include if date unknown)
         yard_date = _parse_yard_date(v["date_added_to_yard"])

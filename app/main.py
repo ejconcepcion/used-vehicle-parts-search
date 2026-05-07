@@ -62,7 +62,6 @@ def list_vehicles(
     limit: int = Query(500, ge=1, le=2000),
 ) -> list[dict[str, Any]]:
     cutoff_date = dt.date.today() - dt.timedelta(days=14)
-    min_year = 2004  # scraper enforces >= 2005; this catches any pre-filter DB rows
 
     with session_scope() as session:
         stmt = select(Vehicle)
@@ -73,8 +72,8 @@ def list_vehicles(
         if min_value > 0:
             stmt = stmt.where(Vehicle.estimated_total_value >= min_value)
 
-        # Year filter (SQL)
-        stmt = stmt.where(Vehicle.year > min_year)
+        # Year filter — also excludes NULL year rows
+        stmt = stmt.where(Vehicle.year >= 2005)
 
         # Pre-filter by first_seen_at so the LIMIT doesn't cut off recent vehicles
         # before the Python date filter runs. 2-day buffer covers clock skew.
