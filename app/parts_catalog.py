@@ -218,9 +218,112 @@ VW_PARTS: tuple[CatalogPart, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Mercedes-Benz
+# ---------------------------------------------------------------------------
+
+MERCEDES_PARTS: tuple[CatalogPart, ...] = (
+
+    # --- Powertrain ---
+    CatalogPart("Engine (Long Block)",
+                "{year} Mercedes-Benz {model} engine long block oem",
+                shipping_est_usd=350.0),
+    CatalogPart("Transmission (7G/9G-Tronic)",
+                "{year} Mercedes-Benz {model} transmission automatic",
+                shipping_est_usd=200.0),
+    CatalogPart("Transfer Case (4MATIC)",
+                "{year} Mercedes-Benz {model} transfer case 4MATIC",
+                shipping_est_usd=150.0,
+                models_filter=("GL", "ML", "GLE", "GLC", "GLK", "G", "4MATIC")),
+    CatalogPart("Turbocharger",
+                "{year} Mercedes-Benz {model} turbocharger oem",
+                shipping_est_usd=45.0),
+    CatalogPart("Supercharger (AMG)",
+                "{year} Mercedes-Benz {model} supercharger AMG",
+                shipping_est_usd=80.0,
+                models_filter=("AMG", "C63", "E63", "S63", "CLS63", "SL63")),
+    CatalogPart("Catalytic Converter",
+                "{year} Mercedes-Benz {model} catalytic converter",
+                shipping_est_usd=35.0),
+    CatalogPart("HPFP (High Pressure Fuel Pump)",
+                "{year} Mercedes-Benz {model} high pressure fuel pump",
+                shipping_est_usd=15.0),
+
+    # --- Electronics ---
+    CatalogPart("ECU / TCM",
+                "{year} Mercedes-Benz {model} ECU TCM module",
+                shipping_est_usd=12.0),
+    CatalogPart("COMAND Head Unit (NTG)",
+                "{year} Mercedes-Benz {model} COMAND NTG navigation",
+                shipping_est_usd=20.0),
+    CatalogPart("Instrument Cluster",
+                "{year} Mercedes-Benz {model} instrument cluster speedometer",
+                shipping_est_usd=15.0),
+    CatalogPart("Parking Sensor Module / PDC",
+                "{year} Mercedes-Benz {model} parking sensor PDC module",
+                shipping_est_usd=12.0),
+    CatalogPart("TPMS Sensors Set",
+                "{year} Mercedes-Benz {model} TPMS tire pressure sensor set oem",
+                shipping_est_usd=12.0),
+    CatalogPart("Airmatic / Air Suspension Compressor",
+                "{year} Mercedes-Benz {model} air suspension compressor Airmatic",
+                shipping_est_usd=25.0,
+                models_filter=("S", "E", "GL", "ML", "GLE", "CLS", "SL")),
+
+    # --- Safety ---
+    CatalogPart("ABS Module / Pump",
+                "{year} Mercedes-Benz {model} ABS module pump",
+                shipping_est_usd=15.0),
+    CatalogPart("Airbag Module (SRS)",
+                "{year} Mercedes-Benz {model} airbag SRS module",
+                shipping_est_usd=15.0),
+
+    # --- Wheels ---
+    CatalogPart("AMG Wheel Set",
+                "{year} Mercedes-Benz {model} AMG wheels set oem",
+                shipping_est_usd=100.0),
+
+    # --- Interior ---
+    CatalogPart("AMG Steering Wheel",
+                "{year} Mercedes-Benz {model} AMG steering wheel",
+                shipping_est_usd=18.0),
+    CatalogPart("Sport / AMG Seats",
+                "{year} Mercedes-Benz {model} AMG sport seats",
+                shipping_est_usd=120.0,
+                models_filter=("AMG", "C63", "E63", "C", "E", "CLA", "CLS")),
+    CatalogPart("OEM Floor Mats",
+                "{year} Mercedes-Benz {model} OEM floor mats set",
+                shipping_est_usd=12.0),
+
+    # --- Exterior ---
+    CatalogPart("Xenon / LED Headlight",
+                "{year} Mercedes-Benz {model} xenon LED headlight oem",
+                shipping_est_usd=30.0),
+    CatalogPart("LED Tail Light",
+                "{year} Mercedes-Benz {model} LED tail light oem",
+                shipping_est_usd=25.0),
+    CatalogPart("AMG Front Bumper / Splitter",
+                "{year} Mercedes-Benz {model} AMG front bumper",
+                shipping_est_usd=80.0,
+                models_filter=("AMG", "C63", "E63", "CLA45", "A45")),
+
+    # --- Long Tail ---
+    CatalogPart("Star Emblem / Hood Ornament",
+                "Mercedes-Benz star emblem hood ornament oem",
+                shipping_est_usd=8.0),
+    CatalogPart("Mirror Cap",
+                "{year} Mercedes-Benz {model} mirror cap cover oem",
+                shipping_est_usd=10.0),
+    CatalogPart("Center Cap Set",
+                "{year} Mercedes-Benz {model} center cap wheel hub cap set oem",
+                shipping_est_usd=10.0),
+)
+
+
 CATALOG: dict[str, tuple[CatalogPart, ...]] = {
     "BMW": BMW_PARTS,
     "VOLKSWAGEN": VW_PARTS,
+    "MERCEDES-BENZ": MERCEDES_PARTS,
 }
 
 
