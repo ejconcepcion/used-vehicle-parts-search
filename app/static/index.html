@@ -298,7 +298,7 @@ async function loadVehicles() {
 
     const vinShort = v.vin ? v.vin.slice(-8) : '—';
     const yardDisplay = (v.yard_name || '—').replace(/^pick.n.pull\s*[-–]?\s*/i, '').trim() || v.yard_name || '—';
-    const ebayQ       = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} -engine -transmission`.trim());
+    const ebayQ       = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} -engine -transmission -wheel -tires -rims`.trim());
     const ebayModuleQ = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} module`.trim());
     const ebayFrmQ       = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} FRM`.trim());
     const ebayHeadrestQ  = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} headrest`.trim());
