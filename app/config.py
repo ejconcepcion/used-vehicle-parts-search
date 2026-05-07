@@ -48,6 +48,14 @@ EBAY_CACHE_DAYS = 7
 #   EBAY_PROXY=http://host:port   (no auth)
 EBAY_PROXY = os.getenv("EBAY_PROXY", "")
 
+# --- Server-side pricing ---------------------------------------------------
+# Set SERVER_SIDE_PRICING=1 in .env to fetch Terapeak data automatically
+# after each Row52 scrape. Requires EBAY_TERAPEAK_COOKIE to be set.
+# Leave at 0 to use price_locally.py instead (safe rollback path).
+
+SERVER_SIDE_PRICING = os.getenv("SERVER_SIDE_PRICING", "0") == "1"
+EBAY_TERAPEAK_COOKIE = os.getenv("EBAY_TERAPEAK_COOKIE", "")
+
 # --- Pipeline tuning -------------------------------------------------------
 
 MIN_VEHICLE_VALUE = 300        # hide vehicles below this in the dashboard

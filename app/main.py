@@ -19,6 +19,7 @@ from . import config, progress, scheduler
 from .database import init_db, session_scope
 from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
 from .parts_catalog import parts_for_vehicle
+from .pricer import calc_vehicle_value
 
 log = logging.getLogger(__name__)
 
@@ -314,6 +315,13 @@ def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
                         queried_at=now,
                     ))
                 total_stored += len(entry.items)
+
+                # Update vehicle estimated value from the new top-sold data.
+                net_val, gross_val = calc_vehicle_value(
+                    [{"price_usd": i.price_usd} for i in entry.items]
+                )
+                veh.estimated_total_value = net_val
+                veh.gross_total_value     = gross_val
     except sqlalchemy.exc.OperationalError as exc:
         msg = str(exc)
         if "database is locked" in msg:

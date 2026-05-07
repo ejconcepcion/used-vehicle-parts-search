@@ -4,10 +4,11 @@ Steps for each run:
   1. Scrape every page of Row52 results in the configured radius.
   2. Filter to the configured target makes (BMW + VW by default).
   3. Upsert vehicle rows into the database.
-  4. Append a SearchRun audit row.
+  4. If SERVER_SIDE_PRICING=1, fetch Terapeak pricing for each vehicle.
+  5. Append a SearchRun audit row.
 
-eBay pricing is NOT done here -- run price_locally.py on your local machine
-to fetch sold-listing data and upload it to /api/top-sold-cache.
+If SERVER_SIDE_PRICING is off (default), run price_locally.py on your
+local machine to fetch sold-listing data and upload it to /api/top-sold-cache.
 """
 
 from __future__ import annotations
@@ -49,7 +50,8 @@ def _upsert_vehicle(session, v: dict) -> Vehicle:
 def run_pipeline() -> dict:
     init_db()
     started = dt.datetime.utcnow()
-    seen = 0
+    seen    = 0
+    priced  = 0
     error: str | None = None
     run_id: int | None = None
 
@@ -61,15 +63,27 @@ def run_pipeline() -> dict:
             session.flush()
             run_id = run.id
 
-        # Scrape Row52 and upsert all matching vehicles.
-        # on_page feeds live page counts into the progress tracker.
         vehicles_raw = list(row52.search(on_page=progress.scrape_page))
         seen = len(vehicles_raw)
         log.info("Scrape complete: %d vehicles found", seen)
 
+        # Upsert vehicles and collect lightweight dicts for the pricer.
+        vehicles_for_pricing: list[dict] = []
         with session_scope() as session:
             for v in vehicles_raw:
-                _upsert_vehicle(session, v)
+                db_veh = _upsert_vehicle(session, v)
+                vehicles_for_pricing.append({
+                    "id":    db_veh.id,
+                    "year":  db_veh.year,
+                    "make":  db_veh.make,
+                    "model": db_veh.model,
+                })
+
+        if config.SERVER_SIDE_PRICING:
+            from . import pricer
+            log.info("Server-side pricing enabled — pricing %d vehicles via Terapeak", seen)
+            priced = pricer.run_pricing(vehicles_for_pricing, on_vehicle=progress.price_vehicle)
+            log.info("Pricing complete: %d/%d vehicles priced", priced, seen)
 
     except Exception:
         error = traceback.format_exc()
@@ -81,17 +95,17 @@ def run_pipeline() -> dict:
     with session_scope() as session:
         run = session.get(SearchRun, run_id)
         if run is not None:
-            run.finished_at = finished
-            run.vehicles_seen = seen
+            run.finished_at      = finished
+            run.vehicles_seen    = seen
             run.vehicles_matched = seen
-            run.parts_queried = 0
-            run.error = error
+            run.parts_queried    = priced
+            run.error            = error
 
     return {
-        "started_at": started.isoformat(),
-        "finished_at": finished.isoformat(),
-        "vehicles_seen": seen,
+        "started_at":       started.isoformat(),
+        "finished_at":      finished.isoformat(),
+        "vehicles_seen":    seen,
         "vehicles_matched": seen,
-        "parts_queried": 0,
-        "error": error,
+        "parts_queried":    priced,
+        "error":            error,
     }

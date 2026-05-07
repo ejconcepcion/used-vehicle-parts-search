@@ -47,6 +47,16 @@ def scrape_page(done: int, total: int, label: str = "") -> None:
         )
 
 
+def price_vehicle(done: int, total: int) -> None:
+    """Call before each vehicle is priced."""
+    with _lock:
+        _state.update(
+            phase_label="Fetching eBay pricing...",
+            pages_done=done,
+            pages_total=total,
+        )
+
+
 def finish() -> None:
     """Call when the pipeline run completes (success or error)."""
     with _lock:
