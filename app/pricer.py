@@ -37,7 +37,7 @@ _NOISE_RE   = re.compile(
     re.IGNORECASE,
 )
 
-TOP_N      = 30
+TOP_N      = 50
 PAGE_SIZE  = 50
 DELAY_SEC  = 1.5   # between vehicles
 
@@ -118,7 +118,7 @@ def _fetch_terapeak(year, make: str, model: str, cookie: str) -> list[dict]:
     start_ms = now_ms - 90 * 24 * 60 * 60 * 1000
     raw: list[dict] = []
 
-    for offset in range(0, 100, PAGE_SIZE):
+    for offset in range(0, 200, PAGE_SIZE):
         rows = _fetch_page(keywords, offset, cookie, now_ms, start_ms)
         if not rows:
             break

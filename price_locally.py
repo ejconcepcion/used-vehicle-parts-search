@@ -44,7 +44,7 @@ EBAY_JUNK      = re.compile(r"\bopens in a new (window or tab|tab or window)\b",
 NEW_PART_RE    = re.compile(r"\b(brand\s+new|new\s+in\s+box|new\s+old\s+stock|nos)\b", re.IGNORECASE)
 DELAY_SEC      = 10.0  # polite pause between vehicles when scraping (eBay rate-limits quickly)
 TERAPEAK_DELAY = 1.5   # authenticated API tolerates a much shorter pause
-TOP_N          = 30    # unique parts to return per vehicle
+TOP_N          = 50    # unique parts to return per vehicle
 DEBUG          = False  # set True via --debug
 
 
