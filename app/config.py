@@ -21,7 +21,7 @@ DB_URL = f"sqlite:///{DB_PATH}"
 
 ZIP_CODE = "94591"
 RADIUS_MILES = 60
-TARGET_MAKES = ["BMW", "Volkswagen", "Mercedes-Benz"]   # post-filter, case-insensitive
+TARGET_MAKES = ["BMW", "Volkswagen", "Mercedes-Benz", "Audi"]   # post-filter, case-insensitive
 ROW52_PAGE_DELAY_SEC = 2.0             # be polite
 
 # Yards that Row52's ZIP+radius search misses due to a site bug (newly added

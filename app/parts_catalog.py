@@ -320,10 +320,106 @@ MERCEDES_PARTS: tuple[CatalogPart, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Audi
+# ---------------------------------------------------------------------------
+
+AUDI_PARTS: tuple[CatalogPart, ...] = (
+
+    # --- Powertrain ---
+    CatalogPart("Engine (Long Block)",
+                "{year} Audi {model} engine long block oem",
+                shipping_est_usd=350.0),
+    CatalogPart("DSG / S-Tronic Transmission",
+                "{year} Audi {model} DSG S-Tronic transmission",
+                shipping_est_usd=200.0,
+                models_filter=("A3", "A4", "A5", "A6", "Q3", "Q5", "TT", "S3", "S4", "S5", "RS3", "RS4", "RS5")),
+    CatalogPart("Quattro Transfer Case",
+                "{year} Audi {model} Quattro transfer case",
+                shipping_est_usd=150.0,
+                models_filter=("A4", "A6", "A8", "Q3", "Q5", "Q7", "S4", "S5", "S6", "RS4", "RS5", "RS6")),
+    CatalogPart("Turbocharger",
+                "{year} Audi {model} turbocharger oem",
+                shipping_est_usd=45.0),
+    CatalogPart("Catalytic Converter",
+                "{year} Audi {model} catalytic converter",
+                shipping_est_usd=35.0),
+    CatalogPart("High Pressure Fuel Pump",
+                "{year} Audi {model} high pressure fuel pump HPFP",
+                shipping_est_usd=15.0),
+
+    # --- Electronics ---
+    CatalogPart("ECU / TCM",
+                "{year} Audi {model} ECU TCM module",
+                shipping_est_usd=12.0),
+    CatalogPart("MMI Navigation Head Unit",
+                "{year} Audi {model} MMI navigation head unit",
+                shipping_est_usd=20.0),
+    CatalogPart("Virtual Cockpit / Instrument Cluster",
+                "{year} Audi {model} virtual cockpit instrument cluster",
+                shipping_est_usd=15.0),
+    CatalogPart("Parking Sensor Module / PDC",
+                "{year} Audi {model} parking sensor PDC module",
+                shipping_est_usd=12.0),
+    CatalogPart("TPMS Sensors Set",
+                "{year} Audi {model} TPMS tire pressure sensor set oem",
+                shipping_est_usd=12.0),
+
+    # --- Safety ---
+    CatalogPart("ABS Module / Pump",
+                "{year} Audi {model} ABS module pump",
+                shipping_est_usd=15.0),
+    CatalogPart("Airbag Module (SRS)",
+                "{year} Audi {model} airbag SRS module",
+                shipping_est_usd=15.0),
+
+    # --- Wheels ---
+    CatalogPart("S-Line / RS Wheel Set",
+                "{year} Audi {model} S-Line RS wheels set oem",
+                shipping_est_usd=100.0),
+
+    # --- Interior ---
+    CatalogPart("S-Line / RS Steering Wheel",
+                "{year} Audi {model} S-Line RS steering wheel",
+                shipping_est_usd=18.0),
+    CatalogPart("Sport / RS Seats",
+                "{year} Audi {model} sport RS seats",
+                shipping_est_usd=120.0,
+                models_filter=("S3", "S4", "S5", "S6", "RS3", "RS4", "RS5", "RS6", "TT", "R8")),
+    CatalogPart("OEM Floor Mats",
+                "{year} Audi {model} OEM floor mats set",
+                shipping_est_usd=12.0),
+
+    # --- Exterior ---
+    CatalogPart("Xenon / LED Headlight",
+                "{year} Audi {model} xenon LED headlight oem",
+                shipping_est_usd=30.0),
+    CatalogPart("LED Tail Light",
+                "{year} Audi {model} LED tail light oem",
+                shipping_est_usd=25.0),
+    CatalogPart("S-Line Front Bumper / Grille",
+                "{year} Audi {model} S-Line front bumper grille",
+                shipping_est_usd=80.0,
+                models_filter=("S3", "S4", "S5", "RS3", "RS4", "RS5", "A4", "A5", "A3")),
+
+    # --- Long Tail ---
+    CatalogPart("Audi Rings Emblem",
+                "Audi rings emblem badge oem",
+                shipping_est_usd=8.0),
+    CatalogPart("Mirror Cap",
+                "{year} Audi {model} mirror cap cover oem",
+                shipping_est_usd=10.0),
+    CatalogPart("Center Cap Set",
+                "{year} Audi {model} center cap wheel hub cap set oem",
+                shipping_est_usd=10.0),
+)
+
+
 CATALOG: dict[str, tuple[CatalogPart, ...]] = {
     "BMW": BMW_PARTS,
     "VOLKSWAGEN": VW_PARTS,
     "MERCEDES-BENZ": MERCEDES_PARTS,
+    "AUDI": AUDI_PARTS,
 }
 
 

@@ -11,6 +11,7 @@
   .pill-bmw  { background:#dbeafe; color:#1e40af; }
   .pill-vw   { background:#dcfce7; color:#166534; }
   .pill-mb   { background:#fef3c7; color:#92400e; }
+  .pill-audi { background:#fee2e2; color:#991b1b; }
   .pill-other{ background:#f3f4f6; color:#374151; }
   details > summary::-webkit-details-marker { display:none; }
   details > summary { list-style:none; cursor:pointer; }
@@ -65,6 +66,7 @@
         <label class="text-xs font-semibold text-slate-600 block mb-1">Make</label>
         <select id="filter-make" class="border rounded-lg px-2.5 py-2 text-sm min-w-[90px]">
           <option value="">All</option>
+          <option value="Audi">Audi</option>
           <option value="BMW">BMW</option>
           <option value="Mercedes-Benz">Mercedes-Benz</option>
           <option value="Volkswagen">VW</option>
@@ -280,7 +282,7 @@ async function loadVehicles() {
 
   for (const v of data) {
     const makeUpper = (v.make || '').toUpperCase();
-    const pill = makeUpper === 'BMW' ? 'pill-bmw' : makeUpper === 'VOLKSWAGEN' ? 'pill-vw' : makeUpper === 'MERCEDES-BENZ' ? 'pill-mb' : 'pill-other';
+    const pill = makeUpper === 'BMW' ? 'pill-bmw' : makeUpper === 'VOLKSWAGEN' ? 'pill-vw' : makeUpper === 'MERCEDES-BENZ' ? 'pill-mb' : makeUpper === 'AUDI' ? 'pill-audi' : 'pill-other';
     const card = document.createElement('details');
     card.className = 'bg-white border border-slate-200 rounded-xl shadow-sm';
 
