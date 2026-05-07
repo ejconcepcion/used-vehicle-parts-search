@@ -85,10 +85,9 @@ def list_vehicles(
             stmt = stmt.order_by(desc(Vehicle.estimated_total_value))
         elif sort == "year":
             stmt = stmt.order_by(desc(Vehicle.year))
-        elif sort == "added":
-            stmt = stmt.order_by(desc(Vehicle.first_seen_at))
         elif sort == "make":
             stmt = stmt.order_by(Vehicle.make.asc(), Vehicle.model.asc())
+        # "added" sort is applied in Python below after date parsing
 
         stmt = stmt.limit(limit)
         rows = session.scalars(stmt).all()
@@ -99,6 +98,14 @@ def list_vehicles(
             v for v in rows
             if (_parse_yard_date(v.date_added_to_yard) or dt.date.today()) >= cutoff_date
         ]
+
+        # Sort by yard add date in Python (date_added_to_yard is a string field).
+        if sort == "added":
+            rows = sorted(
+                rows,
+                key=lambda v: _parse_yard_date(v.date_added_to_yard) or dt.date.min,
+                reverse=True,
+            )
 
         return [
             {
