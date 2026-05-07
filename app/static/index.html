@@ -221,7 +221,7 @@ async function loadYards() {
     const sel = $('#filter-yard');
     const current = sel.value;
     sel.innerHTML = '<option value="">All locations</option>' +
-      yards.map(y => `<option value="${y.replace(/"/g, '&quot;')}">${y.replace(/^pick-n-pull\s*/i, '')}</option>`).join('');
+      yards.map(y => `<option value="${y.replace(/"/g, '&quot;')}">${y.replace(/^pick.n.pull\s*[-–]?\s*/i, '').trim()}</option>`).join('');
     if (current && yards.includes(current)) sel.value = current;
   } catch (e) { /* non-fatal */ }
 }
