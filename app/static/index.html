@@ -284,7 +284,7 @@ async function loadVehicles() {
 
     const vinShort = v.vin ? v.vin.slice(-8) : '—';
     const ebayQ = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim());
-    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${ebayQ}&_sacat=33637&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&_sop=16`;
+    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${ebayQ}&_sacat=6028&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&_sop=16`;
 
     card.innerHTML = `
       <summary class="flex items-center gap-2 sm:gap-4 p-3 sm:p-4 rounded-xl">
