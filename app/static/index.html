@@ -290,8 +290,10 @@ async function loadVehicles() {
     const yardDisplay = (v.yard_name || '—').replace(/^pick.n.pull\s*[-–]?\s*/i, '').trim() || v.yard_name || '—';
     const ebayQ       = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim());
     const ebayModuleQ = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} module`.trim());
+    const ebayFrmQ    = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} FRM`.trim());
     const ebayUrl       = `https://www.ebay.com/sch/i.html?_nkw=${ebayQ}&_sacat=6028&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&_sop=16`;
     const ebayModuleUrl = `https://www.ebay.com/sch/i.html?_nkw=${ebayModuleQ}&_sacat=6028&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&_sop=16`;
+    const ebayFrmUrl    = `https://www.ebay.com/sch/i.html?_nkw=${ebayFrmQ}&_sacat=6028&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&_sop=16`;
 
     card.innerHTML = `
       <summary class="flex items-center gap-2 sm:gap-4 p-3 sm:p-4 rounded-xl">
@@ -321,6 +323,11 @@ async function loadVehicles() {
              class="text-xs font-medium text-blue-500 hover:text-blue-700 underline underline-offset-2">
             Modules ↗
           </a>
+          ${makeUpper === 'BMW' ? `<a href="${ebayFrmUrl}" target="_blank" rel="noopener"
+             onclick="event.stopPropagation()"
+             class="text-xs font-medium text-blue-500 hover:text-blue-700 underline underline-offset-2">
+            FRM ↗
+          </a>` : ''}
         </div>
       </summary>
 
