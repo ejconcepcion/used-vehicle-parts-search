@@ -23,8 +23,21 @@ from . import config, progress
 from .database import init_db, session_scope
 from .models import SearchRun, Vehicle
 from .scrapers import row52
+from .scrapers.row52 import _parse_yard_date
 
 log = logging.getLogger(__name__)
+
+
+def _purge_stale_vehicles(session) -> int:
+    """Delete vehicles whose date_added_to_yard is more than 14 days ago."""
+    cutoff = dt.date.today() - dt.timedelta(days=14)
+    purged = 0
+    for veh in session.scalars(select(Vehicle)).all():
+        yard_date = _parse_yard_date(veh.date_added_to_yard)
+        if yard_date is not None and yard_date < cutoff:
+            session.delete(veh)
+            purged += 1
+    return purged
 
 
 def _upsert_vehicle(session, v: dict) -> Vehicle:
@@ -78,6 +91,9 @@ def run_pipeline() -> dict:
                     "make":  db_veh.make,
                     "model": db_veh.model,
                 })
+            purged = _purge_stale_vehicles(session)
+            if purged:
+                log.info("Purged %d stale vehicle(s) (added > 14 days ago)", purged)
 
         if config.SERVER_SIDE_PRICING:
             from . import pricer
