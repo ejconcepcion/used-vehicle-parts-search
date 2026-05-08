@@ -59,7 +59,7 @@ def list_vehicles(
     make: str | None = Query(None),
     yard: str | None = Query(None),
     min_value: float = Query(0),
-    sort: str = Query("value", regex="^(value|year|added|make)$"),
+    sort: str = Query("added", regex="^(year|added|make)$"),
     limit: int = Query(500, ge=1, le=2000),
 ) -> list[dict[str, Any]]:
     cutoff_date = dt.date.today() - dt.timedelta(days=14)
@@ -81,9 +81,7 @@ def list_vehicles(
         sql_cutoff = dt.datetime.utcnow() - dt.timedelta(days=16)
         stmt = stmt.where(Vehicle.first_seen_at >= sql_cutoff)
 
-        if sort == "value":
-            stmt = stmt.order_by(desc(Vehicle.estimated_total_value))
-        elif sort == "year":
+        if sort == "year":
             stmt = stmt.order_by(desc(Vehicle.year))
         elif sort == "make":
             stmt = stmt.order_by(Vehicle.make.asc(), Vehicle.model.asc())
