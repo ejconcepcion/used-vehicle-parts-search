@@ -52,6 +52,12 @@
     </div>
   </header>
 
+  <!-- Terapeak cookie warning (shown when server-side pricing is on but last run priced nothing) -->
+  <div id="cookie-warning" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-3 mb-4 flex items-start gap-2">
+    <span class="text-amber-500 text-base leading-none mt-0.5">⚠</span>
+    <p id="cookie-warning-text" class="text-sm text-amber-800"></p>
+  </div>
+
   <!-- Progress banner (shown only while a scrape is running) -->
   <div id="progress-banner" class="bg-white rounded-xl shadow-sm border border-blue-200 p-4 mb-4">
     <div class="flex items-center justify-between mb-1.5">
@@ -259,6 +265,20 @@ async function loadStatus() {
   $('#status-line').textContent = str;
   $('#btn-run').disabled = s.running;
   if (s.running) startProgressPolling();
+
+  // Terapeak cookie warning
+  const warn = $('#cookie-warning');
+  const serverPricing = s.config && s.config.server_side_pricing;
+  const stale = serverPricing && lr && !s.running &&
+                lr.vehicles_matched > 0 && lr.parts_queried === 0;
+  if (stale) {
+    $('#cookie-warning-text').textContent =
+      `Terapeak cookie may be expired — last run found ${lr.vehicles_matched} vehicle(s) but fetched no pricing data. ` +
+      `Update EBAY_TERAPEAK_COOKIE in .env and restart the server.`;
+    warn.classList.remove('hidden');
+  } else {
+    warn.classList.add('hidden');
+  }
 }
 
 async function loadYards() {

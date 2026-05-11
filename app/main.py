@@ -420,6 +420,7 @@ def status() -> dict[str, Any]:
             "min_vehicle_value": config.MIN_VEHICLE_VALUE,
             "ebay_use_api": config.EBAY_USE_API,
             "daily_run_hour": config.DAILY_RUN_HOUR,
+            "server_side_pricing": config.SERVER_SIDE_PRICING,
         },
     }
 
