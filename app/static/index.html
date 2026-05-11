@@ -439,21 +439,34 @@ function updateProgressUI(p) {
 let _progressPoll = null;
 function startProgressPolling() {
   if (_progressPoll) return;
-  _progressPoll = setInterval(async () => {
-    const r = await fetch('/api/progress');
-    const p = await r.json();
-    updateProgressUI(p);
-    if (!p.running) {
-      clearInterval(_progressPoll); _progressPoll = null;
-      loadStatus(); loadYards(); loadVehicles();
-    }
-  }, 2000);
+  // Grace period: allow a few not-running responses before giving up.
+  // The pipeline starts in a background thread so there's a brief window
+  // where running is still false right after the POST returns.
+  let notRunningCount = 0;
+  const tick = async () => {
+    try {
+      const r = await fetch('/api/progress');
+      const p = await r.json();
+      updateProgressUI(p);
+      if (!p.running) {
+        notRunningCount++;
+        if (notRunningCount >= 3) {
+          clearInterval(_progressPoll); _progressPoll = null;
+          loadStatus(); loadYards(); loadVehicles();
+        }
+      } else {
+        notRunningCount = 0;
+      }
+    } catch (_) {}
+  };
+  tick(); // fire immediately, don't wait 2s for first update
+  _progressPoll = setInterval(tick, 2000);
 }
 
 async function runNow() {
   $('#btn-run').disabled = true;
+  updateProgressUI({ running: true }); // show banner immediately on click
   await fetch('/api/run-now', { method: 'POST' });
-  updateProgressUI({ running: true });
   startProgressPolling();
 }
 
