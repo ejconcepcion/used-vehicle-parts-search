@@ -260,8 +260,8 @@ async function loadStatus() {
   $('#btn-run').disabled = s.running;
   if (s.running) startProgressPolling();
 
-  // Timestamps
-  const fmt = dt => new Date(dt).toLocaleString();
+  // Timestamps — display in Pacific time
+  const fmt = dt => new Date(dt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const parts = [];
   if (lr && lr.finished_at) parts.push(`Row52: ${fmt(lr.finished_at)}`);
   if (s.last_priced_at)     parts.push(`eBay pricing: ${fmt(s.last_priced_at)}`);

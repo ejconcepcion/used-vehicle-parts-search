@@ -400,10 +400,14 @@ def status() -> dict[str, Any]:
         last_priced_at = session.scalar(
             select(func.max(TopSoldPart.queried_at))
         )
+        def _iso(dt) -> str | None:
+            # Append Z so JavaScript parses these naive-UTC datetimes as UTC.
+            return (dt.isoformat() + "Z") if dt else None
+
         last_run_data = (
             {
-                "started_at": last.started_at.isoformat() if last and last.started_at else None,
-                "finished_at": last.finished_at.isoformat() if last and last.finished_at else None,
+                "started_at": _iso(last.started_at),
+                "finished_at": _iso(last.finished_at),
                 "vehicles_seen": last.vehicles_seen if last else None,
                 "vehicles_matched": last.vehicles_matched if last else None,
                 "parts_queried": last.parts_queried if last else None,
@@ -416,7 +420,7 @@ def status() -> dict[str, Any]:
         "running": scheduler.is_running(),
         "vehicle_count": total,
         "last_run": last_run_data,
-        "last_priced_at": last_priced_at.isoformat() if last_priced_at else None,
+        "last_priced_at": _iso(last_priced_at),
         "config": {
             "zip_code": config.ZIP_CODE,
             "radius_miles": config.RADIUS_MILES,
