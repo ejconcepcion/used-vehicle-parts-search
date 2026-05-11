@@ -354,6 +354,28 @@ def clear_cache() -> dict[str, Any]:
     return {"cleared_price_cache": price_rows, "cleared_top_sold": top_rows}
 
 
+@app.post("/api/clear-all")
+def clear_all() -> dict[str, Any]:
+    """Delete all vehicles (and cascade to parts/top-sold) plus all cache and run log rows."""
+    with session_scope() as session:
+        price_rows   = session.execute(delete(EbayPriceCache)).rowcount
+        top_rows     = session.execute(delete(TopSoldPart)).rowcount
+        part_rows    = session.execute(delete(PartEstimate)).rowcount
+        run_rows     = session.execute(delete(SearchRun)).rowcount
+        vehicle_rows = session.execute(delete(Vehicle)).rowcount
+    log.info(
+        "Full DB clear: %d vehicles, %d parts, %d top-sold, %d price-cache, %d runs",
+        vehicle_rows, part_rows, top_rows, price_rows, run_rows,
+    )
+    return {
+        "cleared_vehicles": vehicle_rows,
+        "cleared_parts": part_rows,
+        "cleared_top_sold": top_rows,
+        "cleared_price_cache": price_rows,
+        "cleared_runs": run_rows,
+    }
+
+
 @app.get("/api/progress")
 def get_progress() -> dict[str, Any]:
     return progress.get()

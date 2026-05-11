@@ -45,6 +45,10 @@
         class="bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 text-sm font-semibold px-4 py-2.5 rounded-lg touch-manipulation">
         Clear cache
       </button>
+      <button id="btn-clear-all"
+        class="bg-red-100 hover:bg-red-200 active:bg-red-300 text-red-700 text-sm font-semibold px-4 py-2.5 rounded-lg touch-manipulation">
+        Clear all data
+      </button>
     </div>
   </header>
 
@@ -444,9 +448,23 @@ async function clearCache() {
   loadStatus();
 }
 
+async function clearAll() {
+  if (!confirm('Delete ALL vehicles and cached data? This cannot be undone.')) return;
+  const btn = $('#btn-clear-all');
+  btn.disabled = true;
+  btn.textContent = 'Clearing…';
+  await fetch('/api/clear-all', { method: 'POST' });
+  btn.textContent = 'Clear all data';
+  btn.disabled = false;
+  loadStatus();
+  loadYards();
+  loadVehicles();
+}
+
 $('#btn-run').addEventListener('click', runNow);
 $('#btn-refresh').addEventListener('click', () => { loadStatus(); loadYards(); loadVehicles(); });
 $('#btn-clear').addEventListener('click', clearCache);
+$('#btn-clear-all').addEventListener('click', clearAll);
 ['filter-make', 'filter-yard', 'filter-sort'].forEach(id => {
   $('#' + id).addEventListener('change', loadVehicles);
 });
