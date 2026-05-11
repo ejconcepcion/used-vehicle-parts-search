@@ -375,7 +375,7 @@ async function loadVehicles() {
       if (!rawParts.length) {
         topTarget.innerHTML = `
           <p class="text-xs font-semibold text-slate-500 mb-1">Top 30 highest value parts</p>
-          <p class="text-slate-400 text-sm">No data yet — run <code>python price_locally.py</code> to fetch.</p>`;
+          <p class="text-slate-400 text-sm">No pricing data yet — will populate automatically after the next run.</p>`;
         return;
       }
 
@@ -405,12 +405,11 @@ function updateProgressUI(p) {
   if (!p.running) { banner.classList.remove('visible'); return; }
   banner.classList.add('visible');
 
-  // Label (e.g. "Scraping Row52..." or "Scraping Row52 — American Canyon...")
   $('#progress-label').textContent = p.phase_label || 'Scraping Row52…';
 
-  // Page count once Row52 tells us the total
   if (p.pages_total > 0) {
-    $('#progress-counts').textContent = `page ${p.pages_done} of ${p.pages_total}`;
+    const unit = p.phase === 'pricing' ? 'vehicle' : 'page';
+    $('#progress-counts').textContent = `${unit} ${p.pages_done} of ${p.pages_total}`;
   } else {
     $('#progress-counts').textContent = '';
   }
@@ -438,7 +437,7 @@ async function runNow() {
 }
 
 async function clearCache() {
-  if (!confirm('Clear all top-sold data? The next price_locally.py run will re-fetch everything.')) return;
+  if (!confirm('Clear all top-sold data? It will be re-fetched on the next run.')) return;
   const btn = $('#btn-clear');
   btn.disabled = true;
   btn.textContent = 'Clearing…';

@@ -87,8 +87,12 @@ def _fetch_page(keywords: str, offset: int, cookie: str,
         "x-requested-with": "XMLHttpRequest",
         "cookie":           cookie,
     }
+    # Disable system-level http_proxy/https_proxy env vars — Terapeak is
+    # authenticated so no residential proxy is needed, and a misconfigured
+    # system proxy causes 407 errors.
+    proxies = {"http": None, "https": None}
     try:
-        resp = requests.get(url, headers=headers, timeout=30)
+        resp = requests.get(url, headers=headers, proxies=proxies, timeout=30)
     except Exception as exc:
         log.warning("Terapeak request error for %r [off=%d]: %s", keywords, offset, exc)
         return []
