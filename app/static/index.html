@@ -31,6 +31,7 @@
     <div>
       <h1 class="text-xl sm:text-2xl font-bold">RadioB Used Parts Search</h1>
       <p id="status-line" class="text-xs sm:text-sm text-slate-500 mt-0.5">Loading status…</p>
+      <p id="timestamp-line" class="text-xs text-slate-400 mt-0.5"></p>
     </div>
     <div class="flex gap-2">
       <button id="btn-run"
@@ -258,6 +259,13 @@ async function loadStatus() {
   $('#status-line').textContent = str;
   $('#btn-run').disabled = s.running;
   if (s.running) startProgressPolling();
+
+  // Timestamps
+  const fmt = dt => new Date(dt).toLocaleString();
+  const parts = [];
+  if (lr && lr.finished_at) parts.push(`Row52: ${fmt(lr.finished_at)}`);
+  if (s.last_priced_at)     parts.push(`eBay pricing: ${fmt(s.last_priced_at)}`);
+  $('#timestamp-line').textContent = parts.join('  ·  ');
 
   // Terapeak cookie warning
   const warn = $('#cookie-warning');

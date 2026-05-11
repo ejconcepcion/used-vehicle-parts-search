@@ -397,6 +397,9 @@ def status() -> dict[str, Any]:
             select(SearchRun).order_by(desc(SearchRun.started_at)).limit(1)
         ).first()
         total = session.scalar(select(func.count()).select_from(Vehicle)) or 0
+        last_priced_at = session.scalar(
+            select(func.max(TopSoldPart.queried_at))
+        )
         last_run_data = (
             {
                 "started_at": last.started_at.isoformat() if last and last.started_at else None,
@@ -413,6 +416,7 @@ def status() -> dict[str, Any]:
         "running": scheduler.is_running(),
         "vehicle_count": total,
         "last_run": last_run_data,
+        "last_priced_at": last_priced_at.isoformat() if last_priced_at else None,
         "config": {
             "zip_code": config.ZIP_CODE,
             "radius_miles": config.RADIUS_MILES,
