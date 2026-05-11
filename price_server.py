@@ -261,7 +261,10 @@ def main() -> None:
         sys.exit(1)
 
     proxy_url = os.getenv("EBAY_PROXY", "").strip()
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    # Explicitly set proxies dict: use EBAY_PROXY if provided, otherwise
+    # pass None values to override any system-level http_proxy/https_proxy
+    # environment variables that requests picks up automatically.
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {"http": None, "https": None}
     if proxies:
         log.info("Using proxy: %s", proxy_url.split("@")[-1])  # log host only, not credentials
 
