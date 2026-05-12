@@ -93,11 +93,18 @@ def _build_html(new_vehicles: list[dict]) -> str:
 </html>"""
 
 
-def send_new_vehicles_email(new_vehicles: list[dict]) -> None:
-    """Send a new-vehicle notification. Silently skips if SMTP is not configured."""
-    if not all([config.SMTP_HOST, config.SMTP_USER, config.SMTP_PASSWORD, config.EMAIL_TO]):
-        log.debug("Email not configured — skipping notification")
-        return
+def send_new_vehicles_email(new_vehicles: list[dict]) -> str | None:
+    """Send a new-vehicle notification. Returns None on success, error string on failure.
+    Silently skips (returns None) if SMTP is not configured."""
+    missing = [k for k, v in {
+        "SMTP_HOST": config.SMTP_HOST,
+        "SMTP_USER": config.SMTP_USER,
+        "SMTP_PASSWORD": config.SMTP_PASSWORD,
+        "EMAIL_TO": config.EMAIL_TO,
+    }.items() if not v]
+    if missing:
+        log.debug("Email not configured — missing: %s", ", ".join(missing))
+        return f"not configured — missing env vars: {', '.join(missing)}"
 
     count = len(new_vehicles)
     noun  = "vehicle" if count == 1 else "vehicles"
@@ -122,5 +129,7 @@ def send_new_vehicles_email(new_vehicles: list[dict]) -> None:
             smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
             smtp.sendmail(config.SMTP_USER, config.EMAIL_TO, msg.as_string())
         log.info("New-vehicle email sent to %s (%d vehicles)", config.EMAIL_TO, count)
+        return None
     except Exception as exc:
         log.error("Failed to send new-vehicle email: %s", exc)
+        return str(exc)

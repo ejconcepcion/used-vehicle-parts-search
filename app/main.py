@@ -366,7 +366,9 @@ def test_email() -> dict[str, Any]:
         ]
     if not payload:
         return {"sent": False, "reason": "no vehicles in database"}
-    send_new_vehicles_email(payload)
+    error = send_new_vehicles_email(payload)
+    if error:
+        return {"sent": False, "reason": error}
     return {"sent": True, "vehicles": len(payload)}
 
 
