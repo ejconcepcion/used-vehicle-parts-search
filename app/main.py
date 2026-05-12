@@ -344,6 +344,32 @@ def update_top_sold_cache(batch: list[TopSoldBatchEntry]) -> dict[str, Any]:
     return {"stored": total_stored}
 
 
+@app.post("/api/test-email")
+def test_email() -> dict[str, Any]:
+    """Send a test new-vehicle email using up to 3 vehicles currently in the DB."""
+    from .emailer import send_new_vehicles_email
+    with session_scope() as session:
+        vehicles = session.scalars(select(Vehicle).limit(3)).all()
+        payload = [
+            {
+                "id":    v.id,
+                "year":  v.year,
+                "make":  v.make,
+                "model": v.model,
+                "yard_name":          v.yard_name,
+                "row_number":         v.row_number,
+                "date_added_to_yard": v.date_added_to_yard,
+                "detail_url":         v.detail_url,
+                "estimated_total_value": v.estimated_total_value,
+            }
+            for v in vehicles
+        ]
+    if not payload:
+        return {"sent": False, "reason": "no vehicles in database"}
+    send_new_vehicles_email(payload)
+    return {"sent": True, "vehicles": len(payload)}
+
+
 @app.post("/api/clear-cache")
 def clear_cache() -> dict[str, Any]:
     """Delete all eBay price cache and top-sold rows so the next run re-fetches everything."""
