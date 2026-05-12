@@ -1,11 +1,14 @@
-"""Send new-vehicle notification emails via SMTP."""
+"""Send new-vehicle notification emails via SendGrid HTTP API.
+
+Uses HTTPS (port 443) — works from DigitalOcean and other VPS providers
+that block outbound SMTP ports (587/465/25).
+"""
 
 from __future__ import annotations
 
 import logging
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+
+import requests
 
 from . import config
 
@@ -94,42 +97,50 @@ def _build_html(new_vehicles: list[dict]) -> str:
 
 
 def send_new_vehicles_email(new_vehicles: list[dict]) -> str | None:
-    """Send a new-vehicle notification. Returns None on success, error string on failure.
-    Silently skips (returns None) if SMTP is not configured."""
-    missing = [k for k, v in {
-        "SMTP_HOST": config.SMTP_HOST,
-        "SMTP_USER": config.SMTP_USER,
-        "SMTP_PASSWORD": config.SMTP_PASSWORD,
-        "EMAIL_TO": config.EMAIL_TO,
-    }.items() if not v]
-    if missing:
-        log.debug("Email not configured — missing: %s", ", ".join(missing))
-        return f"not configured — missing env vars: {', '.join(missing)}"
+    """Send a new-vehicle notification via SendGrid.
+
+    Returns None on success, an error string on failure.
+    Silently skips (returns None) if SENDGRID_API_KEY is not set.
+    """
+    if not config.SENDGRID_API_KEY:
+        log.debug("SENDGRID_API_KEY not set — skipping email notification")
+        return "not configured — set SENDGRID_API_KEY in .env"
 
     count = len(new_vehicles)
     noun  = "vehicle" if count == 1 else "vehicles"
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🚗 {count} new {noun} found at the yard"
-    msg["From"]    = config.SMTP_USER
-    msg["To"]      = config.EMAIL_TO
 
     plain = "\n".join(
         f"- {v.get('year')} {v.get('make')} {v.get('model')}  |  {v.get('yard_name')}  |  "
         f"Row {v.get('row_number')}  |  Added {v.get('date_added_to_yard')}"
         for v in new_vehicles
     )
-    msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(_build_html(new_vehicles), "html"))
+
+    payload = {
+        "personalizations": [{"to": [{"email": config.EMAIL_TO}]}],
+        "from": {"email": config.SENDGRID_FROM_EMAIL},
+        "subject": f"🚗 {count} new {noun} found at the yard",
+        "content": [
+            {"type": "text/plain", "value": plain},
+            {"type": "text/html",  "value": _build_html(new_vehicles)},
+        ],
+    }
 
     try:
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as smtp:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            smtp.sendmail(config.SMTP_USER, config.EMAIL_TO, msg.as_string())
-        log.info("New-vehicle email sent to %s (%d vehicles)", config.EMAIL_TO, count)
-        return None
+        resp = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {config.SENDGRID_API_KEY}",
+                "Content-Type":  "application/json",
+            },
+            timeout=30,
+            proxies={"http": None, "https": None},
+        )
+        if resp.status_code == 202:
+            log.info("New-vehicle email sent to %s (%d vehicles)", config.EMAIL_TO, count)
+            return None
+        log.error("SendGrid error %d: %s", resp.status_code, resp.text[:200])
+        return f"SendGrid HTTP {resp.status_code}: {resp.text[:200]}"
     except Exception as exc:
         log.error("Failed to send new-vehicle email: %s", exc)
         return str(exc)

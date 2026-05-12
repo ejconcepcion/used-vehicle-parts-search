@@ -67,14 +67,11 @@ DAILY_RUN_HOUR = 3   # 0-23, UTC (the scheduler runs in UTC)
 DAILY_RUN_MINUTE = 0
 
 # --- Email notifications ---------------------------------------------------
-# Set all four vars to enable nightly new-vehicle emails.
-# Gmail: use an App Password (myaccount.google.com/apppasswords) with
-#   SMTP_HOST=smtp.gmail.com  SMTP_PORT=587
-SMTP_HOST     = os.getenv("SMTP_HOST", "")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-EMAIL_TO      = os.getenv("EMAIL_TO", "ejconcepcion@gmail.com")
+# Uses SendGrid HTTP API (port 443) — works on DigitalOcean which blocks SMTP.
+# Sign up free at sendgrid.com, create an API key, verify a sender address.
+SENDGRID_API_KEY   = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "")
+EMAIL_TO           = os.getenv("EMAIL_TO", "ejconcepcion@gmail.com")
 
 # --- HTTP ------------------------------------------------------------------
 
