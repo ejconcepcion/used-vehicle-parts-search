@@ -40,10 +40,12 @@ def _purge_stale_vehicles(session) -> int:
     return purged
 
 
-def _upsert_vehicle(session, v: dict) -> Vehicle:
+def _upsert_vehicle(session, v: dict) -> tuple[Vehicle, bool]:
+    """Upsert a vehicle row. Returns (vehicle, is_new)."""
     veh = session.scalar(select(Vehicle).where(Vehicle.vin == v["vin"]))
     now = dt.datetime.utcnow()
-    if veh is None:
+    is_new = veh is None
+    if is_new:
         veh = Vehicle(vin=v["vin"], first_seen_at=now)
         session.add(veh)
     veh.year = v.get("year")
@@ -57,7 +59,7 @@ def _upsert_vehicle(session, v: dict) -> Vehicle:
     veh.detail_url = v.get("detail_url")
     veh.last_seen_at = now
     session.flush()
-    return veh
+    return veh, is_new
 
 
 def run_pipeline() -> dict:
@@ -82,15 +84,26 @@ def run_pipeline() -> dict:
 
         # Upsert vehicles and collect lightweight dicts for the pricer.
         vehicles_for_pricing: list[dict] = []
+        new_vehicles: list[dict] = []
         with session_scope() as session:
             for v in vehicles_raw:
-                db_veh = _upsert_vehicle(session, v)
-                vehicles_for_pricing.append({
+                db_veh, is_new = _upsert_vehicle(session, v)
+                entry = {
                     "id":    db_veh.id,
                     "year":  db_veh.year,
                     "make":  db_veh.make,
                     "model": db_veh.model,
-                })
+                }
+                vehicles_for_pricing.append(entry)
+                if is_new:
+                    new_vehicles.append({
+                        **entry,
+                        "yard_name":         db_veh.yard_name,
+                        "row_number":        db_veh.row_number,
+                        "date_added_to_yard": db_veh.date_added_to_yard,
+                        "detail_url":        db_veh.detail_url,
+                        "estimated_total_value": db_veh.estimated_total_value,
+                    })
             purged = _purge_stale_vehicles(session)
             if purged:
                 log.info("Purged %d stale vehicle(s) (added > 14 days ago)", purged)
@@ -100,6 +113,18 @@ def run_pipeline() -> dict:
             log.info("Server-side pricing enabled — pricing %d vehicles via Terapeak", seen)
             priced = pricer.run_pricing(vehicles_for_pricing, on_vehicle=progress.price_vehicle)
             log.info("Pricing complete: %d/%d vehicles priced", priced, seen)
+            # Refresh estimated values for new vehicles after pricing
+            if new_vehicles:
+                with session_scope() as session:
+                    for nv in new_vehicles:
+                        veh = session.get(Vehicle, nv["id"])
+                        if veh:
+                            nv["estimated_total_value"] = veh.estimated_total_value
+
+        if new_vehicles:
+            from .emailer import send_new_vehicles_email
+            log.info("Sending new-vehicle email for %d vehicle(s)", len(new_vehicles))
+            send_new_vehicles_email(new_vehicles)
 
     except Exception:
         error = traceback.format_exc()

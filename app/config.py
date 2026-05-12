@@ -66,6 +66,16 @@ PARTS_PER_VEHICLE_LIMIT = 20   # cap parts queried per vehicle (cost control)
 DAILY_RUN_HOUR = 3   # 0-23, UTC (the scheduler runs in UTC)
 DAILY_RUN_MINUTE = 0
 
+# --- Email notifications ---------------------------------------------------
+# Set all four vars to enable nightly new-vehicle emails.
+# Gmail: use an App Password (myaccount.google.com/apppasswords) with
+#   SMTP_HOST=smtp.gmail.com  SMTP_PORT=587
+SMTP_HOST     = os.getenv("SMTP_HOST", "")
+SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER     = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+EMAIL_TO      = os.getenv("EMAIL_TO", "ejconcepcion@gmail.com")
+
 # --- HTTP ------------------------------------------------------------------
 
 USER_AGENT = os.getenv(
