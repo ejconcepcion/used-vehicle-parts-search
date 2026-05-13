@@ -66,12 +66,6 @@ PARTS_PER_VEHICLE_LIMIT = 20   # cap parts queried per vehicle (cost control)
 DAILY_RUN_HOUR = 3   # 0-23, UTC (the scheduler runs in UTC)
 DAILY_RUN_MINUTE = 0
 
-# --- Email notifications ---------------------------------------------------
-# Uses SendGrid HTTP API (port 443) — works on DigitalOcean which blocks SMTP.
-# Sign up free at sendgrid.com, create an API key, verify a sender address.
-SENDGRID_API_KEY   = os.getenv("SENDGRID_API_KEY", "")
-SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "")
-EMAIL_TO           = os.getenv("EMAIL_TO", "ejconcepcion@gmail.com")
 
 # --- HTTP ------------------------------------------------------------------
 
