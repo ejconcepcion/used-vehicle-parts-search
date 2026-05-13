@@ -32,3 +32,13 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# --- Claude Code ---
+.claude/
+
+# --- Local runtime files ---
+last_batch*.json
+terapeak_raw.txt
+terapeak_response.json
+probe_terapeak.py
+debug_ebay.html
