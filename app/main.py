@@ -9,13 +9,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Form, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import delete, desc, func, select
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
 
 from . import config, progress, scheduler
+from .auth import AuthMiddleware
 from .database import init_db, session_scope
 from .models import EbayPriceCache, PartEstimate, SearchRun, TopSoldPart, Vehicle
 from .parts_catalog import parts_for_vehicle
@@ -38,6 +41,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Used Vehicle Parts Search", lifespan=lifespan)
+app.add_middleware(AuthMiddleware)
+app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, https_only=False)
 
 
 def _parse_yard_date(date_str: str | None) -> dt.date | None:
@@ -431,6 +436,37 @@ def status() -> dict[str, Any]:
             "server_side_pricing": config.SERVER_SIDE_PRICING,
         },
     }
+
+
+# --- auth ------------------------------------------------------------------
+
+@app.get("/login")
+def login_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.post("/login")
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(default="/"),
+) -> RedirectResponse:
+    if (
+        config.AUTH_USERNAME
+        and config.AUTH_PASSWORD
+        and username == config.AUTH_USERNAME
+        and password == config.AUTH_PASSWORD
+    ):
+        request.session["authenticated"] = True
+        return RedirectResponse(next if next.startswith("/") else "/", status_code=302)
+    return RedirectResponse("/login?error=1", status_code=302)
+
+
+@app.get("/logout")
+async def logout(request: Request) -> RedirectResponse:
+    request.session.clear()
+    return RedirectResponse("/login", status_code=302)
 
 
 # --- static / dashboard ----------------------------------------------------

@@ -67,6 +67,13 @@ DAILY_RUN_HOUR = 3   # 0-23, UTC (the scheduler runs in UTC)
 DAILY_RUN_MINUTE = 0
 
 
+# --- Authentication --------------------------------------------------------
+# Set AUTH_USERNAME and AUTH_PASSWORD in .env to enable login.
+# SECRET_KEY signs the session cookie — set a long random string in .env.
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "")
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
+SECRET_KEY    = os.getenv("SECRET_KEY", "change-me-in-production")
+
 # --- HTTP ------------------------------------------------------------------
 
 USER_AGENT = os.getenv(
