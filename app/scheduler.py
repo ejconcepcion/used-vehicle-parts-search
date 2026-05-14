@@ -33,7 +33,7 @@ def start() -> BackgroundScheduler:
     global _scheduler
     if _scheduler is not None:
         return _scheduler
-    sch = BackgroundScheduler(timezone="UTC")
+    sch = BackgroundScheduler(timezone="America/Los_Angeles")
     sch.add_job(
         _job,
         trigger=CronTrigger(
